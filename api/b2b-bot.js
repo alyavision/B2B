@@ -29,7 +29,6 @@ bot.start(async (ctx) => {
   const userId = ctx.from?.id;
 
   if (payload) {
-    // Реклама: не спрашиваем контакты, сразу чек-лист и продавец
     await sendChecklist(ctx);
     await notifyLead({
       name: ctx.from?.first_name || '',
@@ -38,15 +37,19 @@ bot.start(async (ctx) => {
       answers: `sessionId:${payload}`,
       source: 'Реклама',
     });
-    const reply = await getSellerReply({
-      userMessage: 'Пользователь пришёл по рекламе, начни первую реплику-приветствие.',
-      leadContext: { userId, source: 'ads', sessionId: payload },
-    });
-    await ctx.reply(reply);
+    try {
+      const reply = await getSellerReply({
+        userMessage: 'Пользователь пришёл по рекламе, начни первую реплику-приветствие.',
+        leadContext: { userId, source: 'ads', sessionId: payload },
+      });
+      await ctx.reply(reply);
+    } catch (e) {
+      console.error('AI error (ads):', e?.message || e);
+      await ctx.reply('Спасибо за обращение! Менеджер скоро свяжется с вами.');
+    }
     return;
   }
 
-  // Органика: спросить контакты
   await askName(ctx);
 });
 
@@ -54,14 +57,15 @@ bot.on('message', async (ctx) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return;
 
-  // Если это ответ на наш вопрос — двигаем по шагам
   const replyTo = msg.reply_to_message?.text || '';
-  if (replyTo.startsWith('Введите имя')) {
+  const replyToNorm = replyTo.toLowerCase();
+
+  if (replyToNorm.includes('введите имя')) {
     const name = msg.text.trim();
     await askContact(ctx, name);
     return;
   }
-  if (replyTo.startsWith('Введите контакт')) {
+  if (replyToNorm.includes('введите контакт')) {
     const meta = replyTo;
     const nameMatch = meta.match(/\[name:(.*?)\]/);
     const name = nameMatch ? nameMatch[1] : '';
@@ -69,7 +73,7 @@ bot.on('message', async (ctx) => {
     await askCompany(ctx, name, contact);
     return;
   }
-  if (replyTo.startsWith('Введите компанию')) {
+  if (replyToNorm.includes('введите компанию')) {
     const meta = replyTo;
     const nameMatch = meta.match(/\[name:(.*?)\]/);
     const contactMatch = meta.match(/\[contact:(.*?)\]/);
@@ -77,7 +81,6 @@ bot.on('message', async (ctx) => {
     const contact = contactMatch ? contactMatch[1] : '';
     const company = msg.text.trim();
 
-    // Сохранить в Sheets и уведомить чат
     try {
       await appendLeadToSheet({
         source: 'Органика',
@@ -89,32 +92,42 @@ bot.on('message', async (ctx) => {
         checklistSent: true,
       });
     } catch (e) {
-      console.error('Sheets append error:', e);
+      console.error('Sheets append error:', e?.message || e);
     }
 
     try {
       await notifyLead({ name, contact, company, answers: '', source: 'Органика' });
     } catch (e) {
-      console.error('Notify error:', e);
+      console.error('Notify error:', e?.message || e);
     }
 
     await sendChecklist(ctx);
 
-    const reply = await getSellerReply({
-      userMessage: 'Пользователь оставил контакты, начни продавать.',
-      leadContext: { userId: ctx.from?.id, source: 'organic', name, contact, company },
-    });
-    await ctx.reply(reply);
+    try {
+      const reply = await getSellerReply({
+        userMessage: 'Пользователь оставил контакты, начни продавать.',
+        leadContext: { userId: ctx.from?.id, source: 'organic', name, contact, company },
+      });
+      await ctx.reply(reply);
+    } catch (e) {
+      console.error('AI error (organic):', e?.message || e);
+      await ctx.reply('Спасибо! Мы получили контакты, менеджер свяжется с вами.');
+    }
     return;
   }
 
-  // ИИ-продавец для прочих сообщений (статeless)
+  // Прочие сообщения — продавец ИИ, без падений
   if (!msg.text.startsWith('/')) {
-    const reply = await getSellerReply({
-      userMessage: msg.text,
-      leadContext: { userId: ctx.from?.id },
-    });
-    await ctx.reply(reply);
+    try {
+      const reply = await getSellerReply({
+        userMessage: msg.text,
+        leadContext: { userId: ctx.from?.id },
+      });
+      await ctx.reply(reply);
+    } catch (e) {
+      console.error('AI error (general):', e?.message || e);
+      await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
+    }
   }
 });
 
@@ -138,6 +151,6 @@ module.exports = async (req, res) => {
     res.status(200).send('OK');
   } catch (err) {
     console.error('Webhook error:', err);
-    res.status(500).send('Internal Server Error');
+    res.status(200).send('OK');
   }
 };
