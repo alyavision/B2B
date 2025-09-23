@@ -1,0 +1,17 @@
+{
+  "name": "b2b-telegram-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "B2B Telegram bot on Telegraf.js deployed to Vercel serverless functions",
+  "main": "api/b2b-bot.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3"
+  }
+}
