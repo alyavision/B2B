@@ -10,6 +10,9 @@ if (!token) {
 
 const bot = new Telegraf(token, { handlerTimeout: 9_000 });
 
+const DEFAULT_WELCOME_IMAGE_URL = 'https://i.postimg.cc/vTd9Hx2L/B2B.png';
+const DEFAULT_WELCOME_TEXT = 'AI-ассистент, который знает, как превратить сотрудников в команду. Давайте соберем сильный коллектив через игру.';
+
 function askName(ctx) {
   return ctx.reply('Введите имя', { reply_markup: { force_reply: true } });
 }
@@ -25,8 +28,8 @@ async function sendChecklist(ctx) {
 }
 
 async function sendWelcome(ctx) {
-  const photo = process.env.WELCOME_IMAGE_URL;
-  const caption = process.env.WELCOME_TEXT || 'FriendEvent — делаем корпоративные мероприятия с вовлечением и результатом. Узнайте подробнее и получите персональную рекомендацию.';
+  const photo = process.env.WELCOME_IMAGE_URL || DEFAULT_WELCOME_IMAGE_URL;
+  const caption = process.env.WELCOME_TEXT || DEFAULT_WELCOME_TEXT;
   const keyboard = {
     reply_markup: {
       inline_keyboard: [[{ text: 'Узнать больше', callback_data: 'learn_more' }]],
