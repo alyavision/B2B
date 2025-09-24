@@ -24,12 +24,49 @@ async function sendChecklist(ctx) {
   await ctx.reply('Чек-лист: базовый гайд по старту. (PDF добавим позже)');
 }
 
+async function sendWelcome(ctx) {
+  const photo = process.env.WELCOME_IMAGE_URL;
+  const caption = process.env.WELCOME_TEXT || 'FriendEvent — делаем корпоративные мероприятия с вовлечением и результатом. Узнайте подробнее и получите персональную рекомендацию.';
+  const keyboard = {
+    reply_markup: {
+      inline_keyboard: [[{ text: 'Узнать больше', callback_data: 'learn_more' }]],
+    },
+  };
+  try {
+    if (photo) {
+      await ctx.replyWithPhoto(photo, { caption, parse_mode: 'HTML', ...keyboard });
+    } else {
+      await ctx.reply(caption, keyboard);
+    }
+  } catch (e) {
+    console.error('Welcome send error:', e?.message || e);
+    await ctx.reply('Добро пожаловать! Нажмите «Узнать больше», чтобы начать.', keyboard);
+  }
+}
+
+bot.action('learn_more', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+  } catch {}
+  try {
+    const reply = await getSellerReply({
+      userMessage: 'Пользователь нажал кнопку «Узнать больше». Начни первую реплику и предложи шаг.',
+      leadContext: { userId: ctx.from?.id, source: 'unknown' },
+    });
+    await ctx.reply(reply);
+  } catch (e) {
+    console.error('AI error (learn_more):', e?.message || e);
+    await ctx.reply('Рассказать подробнее? Могу предложить короткий созвон сегодня/завтра.');
+  }
+});
+
 bot.start(async (ctx) => {
   const payload = ctx.startPayload; // параметр из /start
   const userId = ctx.from?.id;
 
+  await sendWelcome(ctx);
+
   if (payload) {
-    await sendChecklist(ctx);
     await notifyLead({
       name: ctx.from?.first_name || '',
       contact: '',
