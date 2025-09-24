@@ -1,12 +1,42 @@
 const OpenAI = require('openai');
+const fs = require('fs');
+const path = require('path');
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+function loadServices() {
+  try {
+    if (process.env.SELLER_SERVICES) {
+      return JSON.parse(process.env.SELLER_SERVICES);
+    }
+  } catch {}
+  try {
+    const p = path.join(process.cwd(), 'config', 'services.json');
+    const raw = fs.readFileSync(p, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 async function getSellerReply({ userMessage, leadContext }) {
+  const cfg = loadServices();
+  const servicesText = cfg?.services
+    ? cfg.services.map(s => `- ${s.name}: ${s.pitches?.join(', ') || ''}`).join('\n')
+    : '- Услуги не сконфигурированы';
+
+  const company = cfg?.company || 'Наша компания';
+  const tone = cfg?.tone || 'Вы, дружелюбно, кратко, по делу';
+  const cta = cfg?.cta || 'Предложите выбрать время для короткого созвона сегодня/завтра.';
+
   const system = [
-    'Ты опытный B2B-продавец. Общайся естественно, кратко и по делу.',
-    'Цель: назначить следующий шаг (созвон/встреча) или предложить Cashflow/продукт.',
-    'Всегда учитывай контекст лида (источник: реклама/органика, имя/компания, если есть).',
+    `Ты опытный B2B-продавец компании ${company}.`,
+    `Тон: ${tone}.`,
+    'Цель: квалифицировать (роль, компания, бюджет, сроки) и довести до следующего шага.',
+    `CTA: ${cta}.`,
+    'Наши услуги и офферы:\n' + servicesText,
+    'Учитывай контекст лида (источник: реклама/органика, имя/компания, если есть).',
+    'Пиши 2–4 коротких предложения, без канцелярита. Всегда заканчивай CTA.',
   ].join(' ');
 
   const messages = [
