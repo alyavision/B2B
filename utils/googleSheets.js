@@ -17,13 +17,32 @@ function getSheetsClient() {
   return { sheets, spreadsheetId };
 }
 
+async function ensureSheetExists(sheets, spreadsheetId, desiredTitle) {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetsList = meta.data.sheets || [];
+  if (!desiredTitle) {
+    return sheetsList[0]?.properties?.title || 'Sheet1';
+  }
+  const found = sheetsList.find((s) => s.properties?.title === desiredTitle);
+  if (found) return desiredTitle;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: desiredTitle } } }],
+    },
+  });
+  return desiredTitle;
+}
+
 async function appendLeadToSheet(lead) {
   const { sheets, spreadsheetId } = getSheetsClient();
-  const sheetName = process.env.GOOGLE_SHEET_NAME || 'Leads';
+  const desiredTitle = process.env.GOOGLE_SHEET_NAME || 'Leads';
+  const title = await ensureSheetExists(sheets, spreadsheetId, desiredTitle);
+
   const values = [[
     new Date().toISOString(),
     lead.source || '',
-    lead.userId || '',
+    String(lead.userId || ''),
     lead.name || '',
     lead.contact || '',
     lead.company || '',
@@ -33,7 +52,7 @@ async function appendLeadToSheet(lead) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:Z`,
+    range: `${title}!A:Z`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values },
   });

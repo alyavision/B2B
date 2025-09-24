@@ -10,6 +10,19 @@ if (!token) {
 
 const bot = new Telegraf(token, { handlerTimeout: 9_000 });
 
+// Простая in-memory сессия (подходит для serverless до подключения БД)
+const userState = new Map();
+function setState(userId, data) {
+  const prev = userState.get(userId) || {};
+  userState.set(userId, { ...prev, ...data });
+}
+function getState(userId) {
+  return userState.get(userId) || {};
+}
+function clearState(userId) {
+  userState.delete(userId);
+}
+
 function askName(ctx) {
   return ctx.reply('Введите имя', { reply_markup: { force_reply: true } });
 }
@@ -29,6 +42,7 @@ bot.start(async (ctx) => {
   const userId = ctx.from?.id;
 
   if (payload) {
+    setState(userId, { source: 'ads', sessionId: payload, hasContacts: true });
     await sendChecklist(ctx);
     await notifyLead({
       name: ctx.from?.first_name || '',
@@ -50,6 +64,7 @@ bot.start(async (ctx) => {
     return;
   }
 
+  setState(userId, { step: 'name', source: 'organic' });
   await askName(ctx);
 });
 
@@ -57,34 +72,31 @@ bot.on('message', async (ctx) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return;
 
-  const replyTo = msg.reply_to_message?.text || '';
-  const replyToNorm = replyTo.toLowerCase();
+  const userId = ctx.from?.id;
+  const state = getState(userId);
 
-  if (replyToNorm.includes('введите имя')) {
+  // Сначала обработка сценария формы, если step активен
+  if (state.step === 'name') {
     const name = msg.text.trim();
+    setState(userId, { step: 'contact', name });
     await askContact(ctx, name);
     return;
   }
-  if (replyToNorm.includes('введите контакт')) {
-    const meta = replyTo;
-    const nameMatch = meta.match(/\[name:(.*?)\]/);
-    const name = nameMatch ? nameMatch[1] : '';
+  if (state.step === 'contact') {
     const contact = msg.text.trim();
-    await askCompany(ctx, name, contact);
+    setState(userId, { step: 'company', contact });
+    await askCompany(ctx, state.name, contact);
     return;
   }
-  if (replyToNorm.includes('введите компанию')) {
-    const meta = replyTo;
-    const nameMatch = meta.match(/\[name:(.*?)\]/);
-    const contactMatch = meta.match(/\[contact:(.*?)\]/);
-    const name = nameMatch ? nameMatch[1] : '';
-    const contact = contactMatch ? contactMatch[1] : '';
+  if (state.step === 'company') {
     const company = msg.text.trim();
+    const name = state.name;
+    const contact = state.contact;
 
     try {
       await appendLeadToSheet({
         source: 'Органика',
-        userId: ctx.from?.id,
+        userId,
         name,
         contact,
         company,
@@ -101,12 +113,15 @@ bot.on('message', async (ctx) => {
       console.error('Notify error:', e?.message || e);
     }
 
+    clearState(userId);
+    setState(userId, { hasContacts: true, source: 'organic', name, contact, company });
+
     await sendChecklist(ctx);
 
     try {
       const reply = await getSellerReply({
         userMessage: 'Пользователь оставил контакты, начни продавать.',
-        leadContext: { userId: ctx.from?.id, source: 'organic', name, contact, company },
+        leadContext: { userId, source: 'organic', name, contact, company },
       });
       await ctx.reply(reply);
     } catch (e) {
@@ -116,18 +131,19 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  // Прочие сообщения — продавец ИИ, без падений
-  if (!msg.text.startsWith('/')) {
+  // Если пришёл из рекламы (payload) или уже есть контакты — продавец
+  if (state.hasContacts || state.source === 'ads') {
     try {
       const reply = await getSellerReply({
         userMessage: msg.text,
-        leadContext: { userId: ctx.from?.id },
+        leadContext: { userId, ...state },
       });
       await ctx.reply(reply);
     } catch (e) {
       console.error('AI error (general):', e?.message || e);
       await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
     }
+    return;
   }
 });
 
