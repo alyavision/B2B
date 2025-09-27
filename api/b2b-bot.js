@@ -1,4 +1,6 @@
 const { Telegraf } = require('telegraf');
+const fs = require('fs');
+const path = require('path');
 const { appendLeadToSheet, listAudienceUserIds } = require('../utils/googleSheets');
 const { notifyLead } = require('../utils/telegramNotify');
 const { getSellerReply } = require('../utils/aiSeller');
@@ -42,10 +44,28 @@ async function sendChecklist(ctx) {
     const fileUrl = process.env.CHECKLIST_URL;
     if (fileId) { await ctx.replyWithDocument(fileId); return; }
     if (fileUrl) { await ctx.replyWithDocument({ url: fileUrl }); return; }
-    await ctx.reply('Чек‑лист скоро будет доступен.');
+
+    // Fallback: локальный файл из репозитория (public/)
+    const candidates = [
+      process.env.CHECKLIST_PATH,
+      path.join(process.cwd(), 'public', 'guide.pdf'),
+      path.join(process.cwd(), 'public', 'checklist.pdf'),
+      path.join(process.cwd(), 'public', 'Как игры выявляют лидеров в группе.pdf'),
+    ].filter(Boolean);
+
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          await ctx.replyWithDocument({ source: fs.createReadStream(p) }, { filename: path.basename(p) });
+          return;
+        }
+      } catch {}
+    }
+
+    await ctx.reply('Чек‑лист (гайд) скоро будет доступен.');
   } catch (e) {
     console.error('Checklist send error:', e?.message || e);
-    await ctx.reply('Не удалось отправить чек‑лист. Отправлю позже.');
+    await ctx.reply('Не удалось отправить гайд. Отправлю позже.');
   }
 }
 
