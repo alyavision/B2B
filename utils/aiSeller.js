@@ -88,6 +88,21 @@ async function getSellerReply({ userMessage, leadContext, history }) {
   if (servicesText) systemParts.push('Наши услуги и офферы:\n' + servicesText);
   if (knowledge) systemParts.push('Справка компании (используй при ответах, но не цитируй целиком):\n' + knowledge);
 
+  // Динамические правила на основе контекста лида
+  const hasAnyContact = Boolean(leadContext && (leadContext.contact || leadContext.company || leadContext.name));
+  const missing = [];
+  if (leadContext) {
+    if (!leadContext.name) missing.push('имя');
+    if (!leadContext.contact) missing.push('контакт');
+    if (!leadContext.company) missing.push('компания');
+  }
+  if (hasAnyContact) {
+    systemParts.push('Контакты частично/полностью получены. Никогда не проси контакты повторно. Не делай повторную квалификацию. Не начинай с приветствия.');
+  }
+  if (missing.length > 0 && missing.length < 3) {
+    systemParts.push('Если не хватает данных, разрешено спросить максимум ОДИН недостающий пункт (' + missing.join(', ') + '), затем сразу продолжай по делу: ценность и CTA на созвон.');
+  }
+
   const system = systemParts.join('\n\n');
 
   const clippedHistory = Array.isArray(history) ? history.slice(-8) : [];
@@ -99,16 +114,8 @@ async function getSellerReply({ userMessage, leadContext, history }) {
     { role: 'user', content: userMessage.slice(0, 4000) },
   ];
 
-  try {
-    const resp = await safeChatCreate({ model: 'gpt-4o', messages, temperature: 0.3 }, 'gpt-4o-mini');
-    return resp.choices?.[0]?.message?.content?.trim() || 'Готов помочь! Расскажите, что вас интересует?';
-  } catch (e) {
-    const code = e?.status || e?.code;
-    if (code === 429 || code === 402) {
-      const err = new Error('AI_RATE_LIMITED'); err.code = code; throw err;
-    }
-    throw e;
-  }
+  const resp = await safeChatCreate({ model: 'gpt-4o', messages, temperature: 0.3 }, 'gpt-4o-mini');
+  return resp.choices?.[0]?.message?.content?.trim() || 'Готов помочь! Расскажите, что вас интересует?';
 }
 
 module.exports = { getSellerReply };
