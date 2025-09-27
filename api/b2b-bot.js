@@ -183,9 +183,8 @@ bot.on('message', async (ctx) => {
   }
 
   function offerSlots(ctx, product) {
-    const offer = product === 'cashflow'
-      ? 'Предлагаю пилотную сессию CashFlow на 2 часа. Подойдёт сегодня 12:00 или 16:00, завтра 12:00 или 16:00?'
-      : 'Предлагаю короткий созвон 10–15 минут. Подойдёт сегодня 12:00 или 16:00, завтра 12:00 или 16:00?';
+    const prefix = product === 'cashflow' ? 'по CashFlow ' : '';
+    const offer = `Предлагаю короткий созвон 10–15 минут ${prefix}с менеджером. Подойдёт сегодня 12:00 или 16:00, завтра 12:00 или 16:00?`;
     return ctx.reply(offer);
   }
 
@@ -221,7 +220,7 @@ bot.on('message', async (ctx) => {
       if (slot) {
         // Подтвердим и уведомим чат
         let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
-        await ctx.reply(`Зафиксировал: ${slot.day} в ${slot.time}. Если нужно изменить — напишите.`);
+        await ctx.reply(`Зафиксировал: ${slot.day} в ${slot.time}. Менеджер свяжется в это время.`);
         try {
           await notifyLead({
             name: lead?.name || ctx.from?.first_name || '',
@@ -229,7 +228,7 @@ bot.on('message', async (ctx) => {
             company: lead?.company || '',
             answers: `Слот: ${slot.day} ${slot.time}${st2.product ? `, продукт: ${st2.product}` : ''}`,
             source: 'Органика/Реклама',
-            status: 'согласован слот',
+            status: 'согласован созвон',
           });
         } catch (e) { console.error('Notify schedule error:', e?.message || e); }
         setS(userId, { phase: 'scheduled' });
@@ -245,7 +244,7 @@ bot.on('message', async (ctx) => {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
       const reply = await getSellerReply({
-        userMessage: t + ' Продолжай по делу, не проси повторно контакты и не переспрашивай интерес: если выбран CashFlow — веди к слоту времени.',
+        userMessage: t + ' Продолжай по делу, не проси повторно контакты и не переспрашивай интерес. Если выбран CashFlow или пользователь хочет обсудить, веди к назначению короткого созвона и предложи слоты времени.',
         leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product },
         history,
       });
