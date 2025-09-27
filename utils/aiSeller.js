@@ -41,7 +41,7 @@ function loadSystemPrompt() {
   return null;
 }
 
-async function getSellerReply({ userMessage, leadContext }) {
+async function getSellerReply({ userMessage, leadContext, history }) {
   const cfg = loadServices();
   const servicesText = cfg?.services
     ? cfg.services.map(s => `- ${s.name}: ${s.pitches?.join(', ') || ''}`).join('\n')
@@ -59,8 +59,7 @@ async function getSellerReply({ userMessage, leadContext }) {
     `Тон: ${tone}.`,
     'Цель: квалифицировать (роль, компания, бюджет, сроки) и довести до следующего шага.',
     `CTA: ${cta}.`,
-    'Учитывай контекст лида (источник: реклама/органика, имя/компания, если есть).',
-    'Пиши 2–4 коротких предложения, без канцелярита. Всегда заканчивай CTA.',
+    'Не используй Markdown/эмодзи, только простой текст. Не повторяй приветствие, если диалог уже идёт.',
   ].join(' ');
 
   const systemParts = [];
@@ -70,16 +69,20 @@ async function getSellerReply({ userMessage, leadContext }) {
 
   const system = systemParts.join('\n\n');
 
+  // История диалога (ограничим последние 8 сообщений)
+  const clippedHistory = Array.isArray(history) ? history.slice(-8) : [];
+
   const messages = [
     { role: 'system', content: system },
-    { role: 'user', content: `Контекст лида: ${JSON.stringify(leadContext, null, 0)}` },
+    { role: 'user', content: `Контекст лида: ${JSON.stringify(leadContext || {}, null, 0)}` },
+    ...clippedHistory.map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: userMessage.slice(0, 4000) },
   ];
 
   const resp = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     messages,
-    temperature: 0.6,
+    temperature: 0.5,
   });
 
   return resp.choices?.[0]?.message?.content?.trim() || 'Готов помочь! Расскажите, что вас интересует?';

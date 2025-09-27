@@ -174,7 +174,16 @@ bot.on('message', async (ctx) => {
 
   // Обычный диалог — без приветствий, с контекстом из Sheets
   if (!msg.text.startsWith('/')) {
-    try { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const reply = await getSellerReply({ userMessage: msg.text + ' Не используй приветствие и не проси повторно контакты.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact } }); await ctx.reply(reply); } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
+    try {
+      let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
+      const history = [{ role: 'user', content: msg.text }];
+      const reply = await getSellerReply({
+        userMessage: msg.text + ' Продолжай по делу, без приветствий и повторных вопросов о контактах.',
+        leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact },
+        history,
+      });
+      await ctx.reply(reply, { parse_mode: undefined });
+    } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
   }
 });
 
