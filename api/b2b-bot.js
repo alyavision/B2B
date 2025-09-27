@@ -77,6 +77,16 @@ async function sendWelcome(ctx) {
   try { if (photo) { await ctx.replyWithPhoto(photo, { caption, parse_mode: 'HTML' }); } else { await ctx.reply(caption); } } catch (e) { console.error('Welcome send error:', e?.message || e); await ctx.reply('Добро пожаловать!'); }
 }
 
+function sanitizeReply(text) {
+  if (!text) return text;
+  let t = String(text).trim();
+  // Удаляем одно или два начальных предложения-приветствия/формальности
+  t = t.replace(/^((?:здравствуйте|привет|добрый день|доброе утро|добрый вечер)[^\n.!?]*[.!?]\s*)/i, '');
+  t = t.replace(/^(спасибо,?\s+что[^\n.!?]*[.!?]\s*)/i, '');
+  t = t.trim();
+  return t;
+}
+
 bot.start(async (ctx) => {
   const payload = ctx.startPayload;
   const userId = ctx.from?.id;
@@ -93,7 +103,7 @@ bot.start(async (ctx) => {
         userMessage: 'Пользователь пришёл по рекламе. Дай первую реплику без повторного приветствия и начни продавать.',
         leadContext: { userId, source: 'ads', sessionId: payload, name: lead?.name, company: lead?.company, contact: lead?.contact, started: true },
       });
-      await ctx.reply(reply);
+      await ctx.reply(sanitizeReply(reply));
       setS(userId, { started: true });
     } catch (e) { console.error('AI start error:', e?.message || e); }
 
@@ -112,7 +122,7 @@ bot.start(async (ctx) => {
         userMessage: 'Пользователь пришёл органически. У нас уже есть контакты, начни продавать без повторного приветствия.',
         leadContext: { userId, source: 'organic', name: lead.name, company: lead.company, contact: lead.contact },
       });
-      await ctx.reply(reply);
+      await ctx.reply(sanitizeReply(reply));
     } catch (e) { console.error('AI start error:', e?.message || e); }
     return;
   }
@@ -168,7 +178,7 @@ bot.on('message', async (ctx) => {
         userMessage: 'Контакты уже получены, не проси их повторно. Начни продавать по делу.',
         leadContext: { userId, source: 'organic', name, contact, company },
       });
-      await ctx.reply(reply);
+      await ctx.reply(sanitizeReply(reply));
     } catch (e) { console.error('AI error (organic):', e?.message || e); await ctx.reply('Спасибо! Мы получили контакты, менеджер свяжется с вами.'); }
     return;
   }
@@ -285,7 +295,7 @@ bot.on('message', async (ctx) => {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
       const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не предлагай фиксированные слоты; если просят подробности — кратко объясни ценность и затем попроси удобное время.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product, started: Boolean(st2.started) }, history, });
-      await ctx.reply(reply, { parse_mode: undefined });
+      await ctx.reply(sanitizeReply(reply), { parse_mode: undefined });
       setS(userId, { started: true });
     } catch (e) {
       if (e?.message === 'AI_RATE_LIMITED') { await askConvenientTime(ctx, st2.product); } else { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
