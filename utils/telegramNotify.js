@@ -9,15 +9,23 @@ if (!token) {
 
 const bot = new Telegraf(token);
 
-async function notifyLead({ name, contact, company, answers, source }) {
-  if (!chatId) return;
+function formatLead({ name, contact, company, email, answers, source, status }) {
   const lines = [
-    'Новый лид (B2B):',
-    `👤 ${name || '-'}\n📱 ${contact || '-'}\n🏢 ${company || '-'}`,
-    answers ? `💬 ${answers}` : null,
-    source ? `🔥 ${source}` : null,
+    '🎯 НОВАЯ ЗАЯВКА (B2B)',
+    `👤 Имя: ${name || '-'}`,
+    `📱 Телефон: ${contact || '-'}`,
+    `🏢 Компания: ${company || '-'}`,
+    `📧 E-mail: ${email || '-'}`,
+    source ? `Источник: ${source}` : null,
+    status ? `Статус: ${status}` : 'Статус: готова к звонку',
+    answers ? `💬 Отзывы/ответы: ${answers}` : null,
   ].filter(Boolean);
-  const text = lines.join('\n');
+  return lines.join('\n');
+}
+
+async function notifyLead(data) {
+  if (!chatId) return;
+  const text = formatLead(data);
   await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
 }
 

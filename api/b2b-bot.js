@@ -2,6 +2,7 @@ const { Telegraf } = require('telegraf');
 const { appendLeadToSheet } = require('../utils/googleSheets');
 const { notifyLead } = require('../utils/telegramNotify');
 const { getSellerReply } = require('../utils/aiSeller');
+const { scheduleReminders, cancelReminders } = require('../utils/reminders');
 
 const token = process.env.B2B_BOT_TOKEN;
 if (!token) {
@@ -42,6 +43,19 @@ async function sendWelcome(ctx) {
   }
 }
 
+function maybeScheduleAfterFirstReply(ctx) {
+  const userId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return;
+  scheduleReminders({ userId, chatId }).catch(() => {});
+}
+
+function maybeCancelReminders(ctx) {
+  const userId = ctx.from?.id;
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return;
+  cancelReminders(userId).catch(() => {});
+}
+
 bot.start(async (ctx) => {
   const payload = ctx.startPayload; // параметр из /start
   const userId = ctx.from?.id;
@@ -55,6 +69,7 @@ bot.start(async (ctx) => {
       company: '',
       answers: `sessionId:${payload}`,
       source: 'Реклама',
+      status: 'готова к звонку',
     });
     try {
       const reply = await getSellerReply({
@@ -62,6 +77,7 @@ bot.start(async (ctx) => {
         leadContext: { userId, source: 'ads', sessionId: payload },
       });
       await ctx.reply(reply);
+      maybeScheduleAfterFirstReply(ctx);
     } catch (e) {
       console.error('AI error (ads):', e?.message || e);
       await ctx.reply('Спасибо за обращение! Менеджер скоро свяжется с вами.');
@@ -76,10 +92,14 @@ bot.on('message', async (ctx) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return;
 
+  const text = msg.text.toLowerCase();
+  if (/(звонок|созвон|перезвон|свяжите|давайте созвонимся)/i.test(text)) {
+    maybeCancelReminders(ctx);
+  }
+
   const replyTo = msg.reply_to_message?.text || '';
   const replyToNorm = replyTo.toLowerCase();
 
-  // Шаги формы определяем по reply_to (надежно для serverless)
   if (replyToNorm.includes('введите имя')) {
     const name = msg.text.trim();
     await askContact(ctx, name);
@@ -116,7 +136,7 @@ bot.on('message', async (ctx) => {
     }
 
     try {
-      await notifyLead({ name, contact, company, answers: '', source: 'Органика' });
+      await notifyLead({ name, contact, company, answers: '', source: 'Органика', status: 'готова к звонку' });
     } catch (e) {
       console.error('Notify error:', e?.message || e);
     }
@@ -129,6 +149,7 @@ bot.on('message', async (ctx) => {
         leadContext: { userId: ctx.from?.id, source: 'organic', name, contact, company },
       });
       await ctx.reply(reply);
+      maybeScheduleAfterFirstReply(ctx);
     } catch (e) {
       console.error('AI error (organic):', e?.message || e);
       await ctx.reply('Спасибо! Мы получили контакты, менеджер свяжется с вами.');
@@ -136,7 +157,6 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  // Любые обычные сообщения — включаем продавца ИИ
   if (!msg.text.startsWith('/')) {
     try {
       const reply = await getSellerReply({
@@ -144,6 +164,7 @@ bot.on('message', async (ctx) => {
         leadContext: { userId: ctx.from?.id, name: ctx.from?.first_name },
       });
       await ctx.reply(reply);
+      maybeScheduleAfterFirstReply(ctx);
     } catch (e) {
       console.error('AI error (general):', e?.message || e);
       await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');

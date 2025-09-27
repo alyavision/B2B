@@ -31,6 +31,16 @@ function loadCompanyKnowledge() {
   return null;
 }
 
+function loadSystemPrompt() {
+  const envPrompt = process.env.SELLER_SYSTEM_PROMPT && process.env.SELLER_SYSTEM_PROMPT.trim();
+  if (envPrompt) return envPrompt;
+  try {
+    const p = path.join(process.cwd(), 'config', 'prompt.md');
+    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
+  } catch {}
+  return null;
+}
+
 async function getSellerReply({ userMessage, leadContext }) {
   const cfg = loadServices();
   const servicesText = cfg?.services
@@ -41,7 +51,7 @@ async function getSellerReply({ userMessage, leadContext }) {
   const tone = cfg?.tone || 'Вы, дружелюбно, кратко, по делу';
   const cta = cfg?.cta || 'Предложите выбрать время для короткого созвона сегодня/завтра.';
 
-  const customSystem = process.env.SELLER_SYSTEM_PROMPT && process.env.SELLER_SYSTEM_PROMPT.trim();
+  const customSystem = loadSystemPrompt();
   const knowledge = loadCompanyKnowledge();
 
   const baseSystem = [

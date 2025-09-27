@@ -18,9 +18,10 @@ curl -s -X POST "https://api.telegram.org/bot$B2B_BOT_TOKEN/setWebhook" \
 
 ## Структура
 - `api/b2b-bot.js` — серверлес-функция (вебхук Telegram)
-- `utils/googleSheets.js` — запись лидов в Google Sheets (заглушка)
-- `utils/telegramNotify.js` — уведомления в рабочий чат
-- `utils/aiSeller.js` — ответы ИИ-продавца (заглушка)
+- `api/cron-reminders.js` — крон для авто-пингов (если включите Upstash Redis)
+- `utils/*` — утилиты (Google Sheets, уведомления, AI, напоминания)
+- `config/*` — профиль продавца, услуги, база знаний
+- `public/checklist.pdf` — ваш гайд, доступен как `/checklist.pdf`
 
 ## Примечания
 - Только webhook; polling не используется.
