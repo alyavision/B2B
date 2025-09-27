@@ -19,6 +19,18 @@ function loadServices() {
   }
 }
 
+function loadCompanyKnowledge() {
+  const envText = process.env.SELLER_KNOWLEDGE && process.env.SELLER_KNOWLEDGE.trim();
+  if (envText) return envText;
+  try {
+    const p = path.join(process.cwd(), 'config', 'company.md');
+    if (fs.existsSync(p)) {
+      return fs.readFileSync(p, 'utf-8');
+    }
+  } catch {}
+  return null;
+}
+
 async function getSellerReply({ userMessage, leadContext }) {
   const cfg = loadServices();
   const servicesText = cfg?.services
@@ -30,6 +42,7 @@ async function getSellerReply({ userMessage, leadContext }) {
   const cta = cfg?.cta || 'Предложите выбрать время для короткого созвона сегодня/завтра.';
 
   const customSystem = process.env.SELLER_SYSTEM_PROMPT && process.env.SELLER_SYSTEM_PROMPT.trim();
+  const knowledge = loadCompanyKnowledge();
 
   const baseSystem = [
     `Ты опытный B2B-продавец компании ${company}.`,
@@ -41,9 +54,9 @@ async function getSellerReply({ userMessage, leadContext }) {
   ].join(' ');
 
   const systemParts = [];
-  if (customSystem) systemParts.push(customSystem);
-  else systemParts.push(baseSystem);
+  if (customSystem) systemParts.push(customSystem); else systemParts.push(baseSystem);
   if (servicesText) systemParts.push('Наши услуги и офферы:\n' + servicesText);
+  if (knowledge) systemParts.push('Справка компании (используй при ответах, но не цитируй целиком):\n' + knowledge);
 
   const system = systemParts.join('\n\n');
 
