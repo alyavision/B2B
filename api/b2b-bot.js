@@ -178,30 +178,68 @@ bot.on('message', async (ctx) => {
     // если есть распознанный слот времени — сразу intent time
     if (parseSlot(t)) return 'time';
     if (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t)) return 'cashflow';
-    if (/(давайте|готов|созвон|звонок|перезвон|назначить|как это сделать|хочу|погнали)/.test(t)) return 'schedule';
+    if (/(давайте|готов|созвон|звонок|перезвон|назначить|как это сделать|хочу|погнали|обсудим|свяжитесь|перезвоните)/.test(t)) return 'schedule';
     return null;
   }
 
-  function offerSlots(ctx, product) {
+  function askConvenientTime(ctx, product) {
     const prefix = product === 'cashflow' ? 'по CashFlow ' : '';
-    const offer = `Предлагаю короткий созвон 10–15 минут ${prefix}с менеджером. Подойдёт сегодня 12:00 или 16:00, завтра 12:00 или 16:00?`;
-    return ctx.reply(offer);
+    return ctx.reply(`Когда вам удобно коротко созвониться ${prefix}с менеджером? Напишите день и время, например: «завтра в 14:00» или «сегодня в 16».`);
+  }
+
+  function wordToHour(word) {
+    const map = {
+      'час': 1, 'один': 1, 'одна': 1,
+      'два': 2, 'две': 2,
+      'три': 3,
+      'четыре': 4,
+      'пять': 5,
+      'шесть': 6,
+      'семь': 7,
+      'восемь': 8,
+      'девять': 9,
+      'десять': 10,
+      'одиннадцать': 11,
+      'двенадцать': 12,
+      'полдень': 12,
+      'полночь': 0,
+    };
+    return map[word];
   }
 
   function parseSlot(text) {
     const t = (text || '').toLowerCase();
-    // поддержка форматов: "завтра 12:00", "завтра в 12", "на завтра 12", "12:00", "в 12", "сегодня 16"
+    // день
     const dayMatch = t.match(/\b(сегодня|завтра)\b/);
-    const timeMatch = t.match(/\b(?:на|в)?\s*(\d{1,2})(?::|\.|\s)?(\d{2})?\b/);
-    if (!timeMatch && !dayMatch) return null;
-    const hh = Number(timeMatch?.[1]);
-    const mm = Number(timeMatch?.[2] ?? '00');
-    if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
-    if (!Number.isFinite(mm) || mm < 0 || mm > 59) return null;
-    const day = dayMatch?.[1] || null; // если дня нет — пусть менеджер уточнит, но считаем валидным
-    const hhStr = String(hh).padStart(2, '0');
-    const mmStr = String(mm).padStart(2, '0');
-    return { day, time: `${hhStr}:${mmStr}` };
+    const day = dayMatch?.[1] || null;
+
+    // цифровой формат: 12:00, 12.00, в 12, 12 00
+    let m = t.match(/\b(?:на|в)?\s*(\d{1,2})(?::|\.|\s)?(\d{2})?\b/);
+    if (!m) {
+      // словесный час: "в два часа дня", "завтра в три", "на завтра два"
+      const wm = t.match(/\b(?:на|в)?\s*(полночь|полдень|одна|один|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать)(?:\s*час(?:а|ов)?)?(?:\s*(утра|дня|вечера|ночи))?/);
+      if (wm) {
+        let hh = wordToHour(wm[1]);
+        const period = wm[2];
+        if (period === 'дня' || period === 'вечера') {
+          if (hh >= 1 && hh <= 11) hh += 12; // 2 часа дня → 14:00
+        } else if (period === 'ночи') {
+          if (hh === 12) hh = 0;
+        }
+        const hhStr = String(hh).padStart(2, '0');
+        return { day, time: `${hhStr}:00` };
+      }
+    }
+    if (m) {
+      let hh = Number(m[1]);
+      let mm = Number(m[2] ?? '00');
+      if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
+      if (!Number.isFinite(mm) || mm < 0 || mm > 59) return null;
+      const hhStr = String(hh).padStart(2, '0');
+      const mmStr = String(mm).padStart(2, '0');
+      return { day, time: `${hhStr}:${mmStr}` };
+    }
+    return null;
   }
 
   // Обычный диалог — без приветствий, с контекстом из Sheets
@@ -210,32 +248,23 @@ bot.on('message', async (ctx) => {
     const intent = detectIntent(t);
     const st2 = getS(userId);
 
-    // Выбор продукта CashFlow
-    if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow' }); await offerSlots(ctx, 'cashflow'); return; }
+    if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow' }); await askConvenientTime(ctx, 'cashflow'); return; }
+    if (intent === 'schedule') { setS(userId, { phase: 'scheduling', product: st2.product || null }); await askConvenientTime(ctx, st2.product); return; }
 
-    // Пользователь попросил назначить
-    if (intent === 'schedule') { setS(userId, { phase: 'scheduling', product: st2.product || null }); await offerSlots(ctx, st2.product); return; }
-
-    // Пользователь прислал конкретный слот времени
     if (intent === 'time' || st2.phase === 'scheduling') {
       const slot = parseSlot(t);
       if (slot) { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const when = slot.day ? `${slot.day} в ${slot.time}` : `${slot.time}`; await ctx.reply(`Зафиксировал: ${when}. Менеджер свяжется в это время.`); try { await notifyLead({ name: lead?.name || ctx.from?.first_name || '', contact: lead?.contact || '', company: lead?.company || '', answers: `Слот: ${when}${st2.product ? `, продукт: ${st2.product}` : ''}`, source: 'Органика/Реклама', status: 'согласован созвон', }); } catch (e) { console.error('Notify schedule error:', e?.message || e); } setS(userId, { phase: 'scheduled' }); return; }
-      await offerSlots(ctx, st2.product); return;
+      await askConvenientTime(ctx, st2.product); return;
     }
 
     // По умолчанию — ИИ
     try {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
-      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не проси повторно контакты и не переспрашивай интерес. Если выбран CashFlow или пользователь хочет обсудить, веди к назначению короткого созвона и предложи слоты времени.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product }, history, });
+      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не предлагай фиксированные слоты; попроси собеседника назвать удобное время и день словами или цифрами.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product }, history, });
       await ctx.reply(reply, { parse_mode: undefined });
     } catch (e) {
-      if (e?.message === 'AI_RATE_LIMITED') {
-        // Умный фолбэк на слоты
-        await offerSlots(ctx, st2.product);
-      } else {
-        console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
-      }
+      if (e?.message === 'AI_RATE_LIMITED') { await askConvenientTime(ctx, st2.product); } else { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
     }
   }
 });
