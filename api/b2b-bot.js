@@ -91,9 +91,10 @@ bot.start(async (ctx) => {
     try {
       const reply = await getSellerReply({
         userMessage: 'Пользователь пришёл по рекламе. Дай первую реплику без повторного приветствия и начни продавать.',
-        leadContext: { userId, source: 'ads', sessionId: payload, name: lead?.name, company: lead?.company, contact: lead?.contact },
+        leadContext: { userId, source: 'ads', sessionId: payload, name: lead?.name, company: lead?.company, contact: lead?.contact, started: true },
       });
       await ctx.reply(reply);
+      setS(userId, { started: true });
     } catch (e) { console.error('AI start error:', e?.message || e); }
 
     await notifyLead({ name: ctx.from?.first_name || lead?.name || '', contact: lead?.contact || '', company: lead?.company || '', answers: `sessionId:${payload}`, source: 'Реклама', status: 'готова к звонку' });
@@ -177,6 +178,7 @@ bot.on('message', async (ctx) => {
     const t = (text || '').toLowerCase();
     // если есть распознанный слот времени — сразу intent time
     if (parseSlot(t)) return 'time';
+    if (/\bбункер\b|\bbunker\b/.test(t)) return 'bunker';
     if (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t)) return 'cashflow';
     if (/(подробнее|подробно|расскажи|расскажите|что это|как проходит|формат|длительн|сколько стоит|цена|стоимост)/.test(t)) return 'details';
     if (/(давайте|готов|созвон|звонок|перезвон|назначить|как это сделать|хочу|погнали|обсудим|свяжитесь|перезвоните)/.test(t)) return 'schedule';
@@ -250,7 +252,8 @@ bot.on('message', async (ctx) => {
     const intent = detectIntent(t);
     const st2 = getS(userId);
 
-    if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow' }); await askConvenientTime(ctx, 'cashflow'); return; }
+    if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow', started: true }); await askConvenientTime(ctx, 'cashflow'); return; }
+    if (intent === 'bunker') { setS(userId, { phase: 'scheduling', product: 'bunker', started: true }); await askConvenientTime(ctx, null); return; }
 
     // Детали по запросу пользователя
     if (intent === 'details') {
