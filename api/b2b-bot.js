@@ -1,7 +1,7 @@
 const { Telegraf } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
-const { appendLeadToSheet, listAudienceUserIds } = require('../utils/googleSheets');
+const { appendLeadToSheet, listAudienceUserIds, getLeadByUserId } = require('../utils/googleSheets');
 const { notifyLead } = require('../utils/telegramNotify');
 const { getSellerReply } = require('../utils/aiSeller');
 // reminders и audience-redis не используем для простоты рассылки
@@ -29,13 +29,13 @@ async function isAdminInWorkChat(userId) {
 }
 
 function askName(ctx) {
-  return ctx.reply('Введите имя', { reply_markup: { force_reply: true } });
+  return ctx.reply('Как вас зовут?', { reply_markup: { force_reply: true } });
 }
 function askContact(ctx, name) {
-  return ctx.reply(`Введите контакт (телефон/email) [name:${name}]`, { reply_markup: { force_reply: true } });
+  return ctx.reply('Оставьте, пожалуйста, телефон или e‑mail для связи', { reply_markup: { force_reply: true } });
 }
 function askCompany(ctx, name, contact) {
-  return ctx.reply(`Введите компанию [name:${name}][contact:${contact}]`, { reply_markup: { force_reply: true } });
+  return ctx.reply('Как называется ваша компания?', { reply_markup: { force_reply: true } });
 }
 
 async function sendChecklist(ctx) {
@@ -94,27 +94,30 @@ bot.start(async (ctx) => {
   await sendWelcome(ctx);
   await sendChecklist(ctx);
 
-  // 2) Первая реплика ИИ (ads/organic контекст)
+  // Если данные уже есть в Sheets — не просим заново
+  let lead = null;
+  try { lead = await getLeadByUserId(userId); } catch {}
+
+  // 2) Первая реплика ИИ
   try {
     const leadContext = payload
-      ? { userId, source: 'ads', sessionId: payload }
-      : { userId, source: 'organic' };
+      ? { userId, source: 'ads', sessionId: payload, name: lead?.name, company: lead?.company, contact: lead?.contact }
+      : { userId, source: 'organic', name: lead?.name, company: lead?.company, contact: lead?.contact };
     const userMessage = payload
-      ? 'Пользователь пришёл по рекламе, начни первую реплику-приветствие.'
-      : 'Пользователь пришёл органически. Коротко поприветствуй и объясни, что для подбора предложения понадобятся контакты.';
+      ? 'Пользователь пришёл по рекламе, начни первую реплику-приветствие без повторных приветствий в дальнейшем.'
+      : 'Пользователь пришёл органически. Коротко поприветствуй один раз и сообщи, что для подбора предложения понадобятся контакты (не дублируй их в каждом сообщении).';
     const reply = await getSellerReply({ userMessage, leadContext });
     await ctx.reply(reply);
   } catch (e) {
     console.error('AI start error:', e?.message || e);
-    await ctx.reply('Рад познакомиться! Готов помочь подобрать формат под ваши задачи.');
+    await ctx.reply('Готов помочь подобрать формат под ваши задачи.');
   }
 
-  // 3) Если реклама — сразу выходим (без сбора контактов здесь)
   if (payload) {
     await notifyLead({
-      name: ctx.from?.first_name || '',
-      contact: '',
-      company: '',
+      name: ctx.from?.first_name || lead?.name || '',
+      contact: lead?.contact || '',
+      company: lead?.company || '',
       answers: `sessionId:${payload}`,
       source: 'Реклама',
       status: 'готова к звонку',
@@ -122,8 +125,10 @@ bot.start(async (ctx) => {
     return;
   }
 
-  // 4) Органика — продолжаем сбор контактов
-  await askName(ctx);
+  // Если данных нет — спросим по шагам, иначе не повторяем
+  if (!lead?.name) { await askName(ctx); return; }
+  if (!lead?.contact) { await askContact(ctx, lead?.name); return; }
+  if (!lead?.company) { await askCompany(ctx, lead?.name, lead?.contact); return; }
 });
 
 bot.command('broadcast', async (ctx) => {
@@ -138,7 +143,7 @@ bot.on('message', async (ctx) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return;
 
-  // Ответ на prompt рассылки
+  // Ответ на prompt рассылки (оставляем как есть)
   if (ctx.message.reply_to_message?.text?.includes('Введите текст рассылки')) {
     const uid = ctx.from?.id;
     const ok = await isAdminInWorkChat(uid);
@@ -156,36 +161,30 @@ bot.on('message', async (ctx) => {
     return;
   }
 
+  // Поддержка формы по reply_to без дубликатов скобок
   const replyTo = msg.reply_to_message?.text || '';
   const replyToNorm = replyTo.toLowerCase();
 
-  if (replyToNorm.includes('введите имя')) {
+  if (replyToNorm.includes('как вас зовут?')) {
     const name = msg.text.trim();
     await askContact(ctx, name);
     return;
   }
-  if (replyToNorm.includes('введите контакт')) {
-    const meta = replyTo;
-    const nameMatch = meta.match(/\[name:(.*?)\]/);
-    const name = nameMatch ? nameMatch[1] : '';
+  if (replyToNorm.includes('телефон') || replyToNorm.includes('e‑mail')) {
     const contact = msg.text.trim();
-    await askCompany(ctx, name, contact);
+    await askCompany(ctx, '', contact);
     return;
   }
-  if (replyToNorm.includes('введите компанию')) {
-    const meta = replyTo;
-    const nameMatch = meta.match(/\[name:(.*?)\]/);
-    const contactMatch = meta.match(/\[contact:(.*?)\]/);
-    const name = nameMatch ? nameMatch[1] : '';
-    const contact = contactMatch ? contactMatch[1] : '';
+  if (replyToNorm.includes('как называется ваша компания?')) {
     const company = msg.text.trim();
+    const userId = ctx.from?.id;
 
     try {
       await appendLeadToSheet({
         source: 'Органика',
-        userId: ctx.from?.id,
-        name,
-        contact,
+        userId,
+        name: '',
+        contact: '',
         company,
         answers: '',
         checklistSent: true,
@@ -195,15 +194,15 @@ bot.on('message', async (ctx) => {
     }
 
     try {
-      await notifyLead({ name, contact, company, answers: '', source: 'Органика', status: 'готова к звонку' });
+      await notifyLead({ name: '', contact: '', company, answers: '', source: 'Органика', status: 'готова к звонку' });
     } catch (e) {
       console.error('Notify error:', e?.message || e);
     }
 
     try {
       const reply = await getSellerReply({
-        userMessage: 'Пользователь оставил контакты, начни продавать.',
-        leadContext: { userId: ctx.from?.id, source: 'organic', name, contact, company },
+        userMessage: 'Пользователь оставил контакты, начни продавать. Не повторяй приветствие.',
+        leadContext: { userId, source: 'organic', company },
       });
       await ctx.reply(reply);
     } catch (e) {
@@ -213,11 +212,15 @@ bot.on('message', async (ctx) => {
     return;
   }
 
+  // Обычный диалог — без приветствий
   if (!msg.text.startsWith('/')) {
     try {
+      const userId = ctx.from?.id;
+      let lead = null;
+      try { lead = await getLeadByUserId(userId); } catch {}
       const reply = await getSellerReply({
         userMessage: msg.text,
-        leadContext: { userId: ctx.from?.id, name: ctx.from?.first_name },
+        leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact },
       });
       await ctx.reply(reply);
     } catch (e) {

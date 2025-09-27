@@ -63,7 +63,7 @@ async function appendLeadToSheet(lead) {
 async function listAudienceUserIds() {
   const { sheets, spreadsheetId } = getSheetsClient();
   const title = process.env.GOOGLE_SHEET_NAME || 'Leads';
-  const range = `${title}!C2:C`; // C — tg_user_id по нашей схеме
+  const range = `${title}!C2:C`;
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = res.data.values || [];
   const ids = new Set();
@@ -75,4 +75,28 @@ async function listAudienceUserIds() {
   return Array.from(ids);
 }
 
-module.exports = { appendLeadToSheet, listAudienceUserIds };
+async function getLeadByUserId(userId) {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const title = process.env.GOOGLE_SHEET_NAME || 'Leads';
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${title}!A2:H` });
+  const rows = res.data.values || [];
+  // Найти последнюю запись с совпадающим userId (колонка C, индекс 2)
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if ((row[2] || '') === String(userId)) {
+      return {
+        timestamp: row[0] || '',
+        source: row[1] || '',
+        userId: row[2] || '',
+        name: row[3] || '',
+        contact: row[4] || '',
+        company: row[5] || '',
+        answers: row[6] || '',
+        checklistSent: (row[7] || '') === 'yes',
+      };
+    }
+  }
+  return null;
+}
+
+module.exports = { appendLeadToSheet, listAudienceUserIds, getLeadByUserId };
