@@ -69,7 +69,6 @@ async function getSellerReply({ userMessage, leadContext, history }) {
 
   const system = systemParts.join('\n\n');
 
-  // История диалога (ограничим последние 8 сообщений)
   const clippedHistory = Array.isArray(history) ? history.slice(-8) : [];
 
   const messages = [
@@ -80,9 +79,9 @@ async function getSellerReply({ userMessage, leadContext, history }) {
   ];
 
   const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     messages,
-    temperature: 0.5,
+    temperature: 0.3,
   });
 
   return resp.choices?.[0]?.message?.content?.trim() || 'Готов помочь! Расскажите, что вас интересует?';
