@@ -214,19 +214,17 @@ bot.on('message', async (ctx) => {
     const dayMatch = t.match(/\b(сегодня|завтра)\b/);
     const day = dayMatch?.[1] || null;
 
-    // цифровой формат: 12:00, 12.00, в 12, 12 00
+    // цифровой формат: 12:00, 12.00, в 12, 12 00 (+ периоды суток)
     let m = t.match(/\b(?:на|в)?\s*(\d{1,2})(?::|\.|\s)?(\d{2})?\b/);
+    const periodMatch = t.match(/\b(утра|дня|вечера|ночи)\b/);
     if (!m) {
       // словесный час: "в два часа дня", "завтра в три", "на завтра два"
       const wm = t.match(/\b(?:на|в)?\s*(полночь|полдень|одна|один|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать)(?:\s*час(?:а|ов)?)?(?:\s*(утра|дня|вечера|ночи))?/);
       if (wm) {
         let hh = wordToHour(wm[1]);
         const period = wm[2];
-        if (period === 'дня' || period === 'вечера') {
-          if (hh >= 1 && hh <= 11) hh += 12; // 2 часа дня → 14:00
-        } else if (period === 'ночи') {
-          if (hh === 12) hh = 0;
-        }
+        if (period === 'дня' || period === 'вечера') { if (hh >= 1 && hh <= 11) hh += 12; }
+        else if (period === 'ночи') { if (hh === 12) hh = 0; }
         const hhStr = String(hh).padStart(2, '0');
         return { day, time: `${hhStr}:00` };
       }
@@ -236,6 +234,9 @@ bot.on('message', async (ctx) => {
       let mm = Number(m[2] ?? '00');
       if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
       if (!Number.isFinite(mm) || mm < 0 || mm > 59) return null;
+      const period = periodMatch?.[1];
+      if (period === 'дня' || period === 'вечера') { if (hh >= 1 && hh <= 11) hh += 12; }
+      else if (period === 'ночи') { if (hh === 12) hh = 0; }
       const hhStr = String(hh).padStart(2, '0');
       const mmStr = String(mm).padStart(2, '0');
       return { day, time: `${hhStr}:${mmStr}` };
@@ -280,8 +281,9 @@ bot.on('message', async (ctx) => {
     try {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
-      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не предлагай фиксированные слоты; если просят подробности — кратко объясни ценность и затем попроси удобное время.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product }, history, });
+      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не предлагай фиксированные слоты; если просят подробности — кратко объясни ценность и затем попроси удобное время.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product, started: Boolean(st2.started) }, history, });
       await ctx.reply(reply, { parse_mode: undefined });
+      setS(userId, { started: true });
     } catch (e) {
       if (e?.message === 'AI_RATE_LIMITED') { await askConvenientTime(ctx, st2.product); } else { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
     }
