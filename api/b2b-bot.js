@@ -175,10 +175,10 @@ bot.on('message', async (ctx) => {
   // Интенты и FSM для продаж
   function detectIntent(text) {
     const t = (text || '').toLowerCase();
+    // если есть распознанный слот времени — сразу intent time
+    if (parseSlot(t)) return 'time';
     if (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t)) return 'cashflow';
     if (/(давайте|готов|созвон|звонок|перезвон|назначить|как это сделать|хочу|погнали)/.test(t)) return 'schedule';
-    const time = t.match(/(сегодня|завтра)?\s*(\d{1,2}:\d{2})/);
-    if (time) return 'time';
     return null;
   }
 
@@ -189,9 +189,19 @@ bot.on('message', async (ctx) => {
   }
 
   function parseSlot(text) {
-    const m = (text || '').toLowerCase().match(/\b(сегодня|завтра)?\s*(\d{1,2}:\d{2})\b/);
-    if (!m) return null;
-    return { day: m[1] || 'сегодня', time: m[2] };
+    const t = (text || '').toLowerCase();
+    // поддержка форматов: "завтра 12:00", "завтра в 12", "на завтра 12", "12:00", "в 12", "сегодня 16"
+    const dayMatch = t.match(/\b(сегодня|завтра)\b/);
+    const timeMatch = t.match(/\b(?:на|в)?\s*(\d{1,2})(?::|\.|\s)?(\d{2})?\b/);
+    if (!timeMatch && !dayMatch) return null;
+    const hh = Number(timeMatch?.[1]);
+    const mm = Number(timeMatch?.[2] ?? '00');
+    if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
+    if (!Number.isFinite(mm) || mm < 0 || mm > 59) return null;
+    const day = dayMatch?.[1] || null; // если дня нет — пусть менеджер уточнит, но считаем валидным
+    const hhStr = String(hh).padStart(2, '0');
+    const mmStr = String(mm).padStart(2, '0');
+    return { day, time: `${hhStr}:${mmStr}` };
   }
 
   // Обычный диалог — без приветствий, с контекстом из Sheets
@@ -220,13 +230,14 @@ bot.on('message', async (ctx) => {
       if (slot) {
         // Подтвердим и уведомим чат
         let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
-        await ctx.reply(`Зафиксировал: ${slot.day} в ${slot.time}. Менеджер свяжется в это время.`);
+        const when = slot.day ? `${slot.day} в ${slot.time}` : `${slot.time}`;
+        await ctx.reply(`Зафиксировал: ${when}. Менеджер свяжется в это время.`);
         try {
           await notifyLead({
             name: lead?.name || ctx.from?.first_name || '',
             contact: lead?.contact || '',
             company: lead?.company || '',
-            answers: `Слот: ${slot.day} ${slot.time}${st2.product ? `, продукт: ${st2.product}` : ''}`,
+            answers: `Слот: ${when}${st2.product ? `, продукт: ${st2.product}` : ''}`,
             source: 'Органика/Реклама',
             status: 'согласован созвон',
           });
