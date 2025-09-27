@@ -43,7 +43,12 @@ async function sendChecklist(ctx) {
     const fileId = process.env.CHECKLIST_FILE_ID;
     const fileUrl = process.env.CHECKLIST_URL;
     if (fileId) { await ctx.replyWithDocument(fileId); return; }
-    if (fileUrl) { await ctx.replyWithDocument({ url: fileUrl }); return; }
+    if (fileUrl) {
+      let filename = 'guide.pdf';
+      try { const u = new URL(fileUrl); const base = path.basename(u.pathname); if (base) filename = base; } catch {}
+      await ctx.replyWithDocument({ url: fileUrl, filename });
+      return;
+    }
 
     // Fallback: локальный файл из репозитория (public/)
     const candidates = [
@@ -56,7 +61,7 @@ async function sendChecklist(ctx) {
     for (const p of candidates) {
       try {
         if (fs.existsSync(p)) {
-          await ctx.replyWithDocument({ source: fs.createReadStream(p) }, { filename: path.basename(p) });
+          await ctx.replyWithDocument({ source: fs.createReadStream(p), filename: path.basename(p) });
           return;
         }
       } catch {}
