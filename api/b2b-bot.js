@@ -172,14 +172,81 @@ bot.on('message', async (ctx) => {
     return;
   }
 
+  // Интенты и FSM для продаж
+  function detectIntent(text) {
+    const t = (text || '').toLowerCase();
+    if (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t)) return 'cashflow';
+    if (/(давайте|готов|созвон|звонок|перезвон|назначить|как это сделать|хочу|погнали)/.test(t)) return 'schedule';
+    const time = t.match(/(сегодня|завтра)?\s*(\d{1,2}:\d{2})/);
+    if (time) return 'time';
+    return null;
+  }
+
+  function offerSlots(ctx, product) {
+    const offer = product === 'cashflow'
+      ? 'Предлагаю пилотную сессию CashFlow на 2 часа. Подойдёт сегодня 12:00 или 16:00, завтра 12:00 или 16:00?'
+      : 'Предлагаю короткий созвон 10–15 минут. Подойдёт сегодня 12:00 или 16:00, завтра 12:00 или 16:00?';
+    return ctx.reply(offer);
+  }
+
+  function parseSlot(text) {
+    const m = (text || '').toLowerCase().match(/\b(сегодня|завтра)?\s*(\d{1,2}:\d{2})\b/);
+    if (!m) return null;
+    return { day: m[1] || 'сегодня', time: m[2] };
+  }
+
   // Обычный диалог — без приветствий, с контекстом из Sheets
   if (!msg.text.startsWith('/')) {
+    const t = msg.text;
+    const intent = detectIntent(t);
+    const st2 = getS(userId);
+
+    // Выбор продукта CashFlow
+    if (intent === 'cashflow') {
+      setS(userId, { phase: 'scheduling', product: 'cashflow' });
+      await offerSlots(ctx, 'cashflow');
+      return;
+    }
+
+    // Пользователь попросил назначить
+    if (intent === 'schedule') {
+      setS(userId, { phase: 'scheduling', product: st2.product || null });
+      await offerSlots(ctx, st2.product);
+      return;
+    }
+
+    // Пользователь прислал конкретный слот времени
+    if (intent === 'time' || st2.phase === 'scheduling') {
+      const slot = parseSlot(t);
+      if (slot) {
+        // Подтвердим и уведомим чат
+        let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
+        await ctx.reply(`Зафиксировал: ${slot.day} в ${slot.time}. Если нужно изменить — напишите.`);
+        try {
+          await notifyLead({
+            name: lead?.name || ctx.from?.first_name || '',
+            contact: lead?.contact || '',
+            company: lead?.company || '',
+            answers: `Слот: ${slot.day} ${slot.time}${st2.product ? `, продукт: ${st2.product}` : ''}`,
+            source: 'Органика/Реклама',
+            status: 'согласован слот',
+          });
+        } catch (e) { console.error('Notify schedule error:', e?.message || e); }
+        setS(userId, { phase: 'scheduled' });
+        return;
+      }
+      // Если слот не распознан — напомним варианты
+      await offerSlots(ctx, st2.product);
+      return;
+    }
+
+    // По умолчанию — ИИ без приветствий и повторной квалификации
     try {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
-      const history = [{ role: 'user', content: msg.text }];
+      const history = [{ role: 'user', content: t }];
       const reply = await getSellerReply({
-        userMessage: msg.text + ' Продолжай по делу, без приветствий и повторных вопросов о контактах.',
-        leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact },
+        userMessage: t + ' Продолжай по делу, не проси повторно контакты и не переспрашивай интерес: если выбран CashFlow — веди к слоту времени.',
+        leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product },
         history,
       });
       await ctx.reply(reply, { parse_mode: undefined });
