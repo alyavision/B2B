@@ -140,11 +140,19 @@ bot.on('message', async (ctx) => {
   }
 
   const userId = ctx.from?.id; const st = getS(userId);
+  const replyTo = ctx.message.reply_to_message?.text?.toLowerCase() || '';
 
-  // Шаги формы по сессии (без дубликатов и метаданных)
-  if (st.step === 'name') { const name = msg.text.trim(); setS(userId, { step: 'contact', name }); await askContact(ctx); return; }
-  if (st.step === 'contact') { const contact = msg.text.trim(); setS(userId, { step: 'company', contact }); await askCompany(ctx); return; }
-  if (st.step === 'company') {
+  // Fallback по reply_to, если сессия потерялась (serverless)
+  let step = st.step;
+  if (!step) {
+    if (replyTo.includes('как вас зовут?')) step = 'name';
+    else if (replyTo.includes('телефон') || replyTo.includes('e‑mail')) step = 'contact';
+    else if (replyTo.includes('как называется ваша компания?')) step = 'company';
+  }
+
+  if (step === 'name') { const name = msg.text.trim(); setS(userId, { step: 'contact', name }); await askContact(ctx); return; }
+  if (step === 'contact') { const contact = msg.text.trim(); setS(userId, { step: 'company', contact }); await askCompany(ctx); return; }
+  if (step === 'company') {
     const company = msg.text.trim(); const { name, contact } = getS(userId);
     try { await appendLeadToSheet({ source: 'Органика', userId, name: name || '', contact: contact || '', company, answers: '', checklistSent: true }); } catch (e) { console.error('Sheets append error:', e?.message || e); }
     try { await notifyLead({ name: name || '', contact: contact || '', company, answers: '', source: 'Органика', status: 'готова к звонку' }); } catch (e) { console.error('Notify error:', e?.message || e); }
@@ -155,7 +163,7 @@ bot.on('message', async (ctx) => {
 
   // Обычный диалог — без приветствий, с контекстом из Sheets
   if (!msg.text.startsWith('/')) {
-    try { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const reply = await getSellerReply({ userMessage: msg.text, leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact } }); await ctx.reply(reply); } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
+    try { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const reply = await getSellerReply({ userMessage: msg.text + ' Не используй приветствие, продолжай по делу.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact } }); await ctx.reply(reply); } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
   }
 });
 
