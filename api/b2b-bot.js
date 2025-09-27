@@ -86,28 +86,40 @@ bot.start(async (ctx) => {
 
   let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
 
-  try {
-    const leadContext = payload
-      ? { userId, source: 'ads', sessionId: payload, name: lead?.name, company: lead?.company, contact: lead?.contact }
-      : { userId, source: 'organic', name: lead?.name, company: lead?.company, contact: lead?.contact };
-    const userMessage = payload
-      ? 'Пользователь пришёл по рекламе, дай короткое первое сообщение без повторных приветствий далее.'
-      : 'Пользователь пришёл органически. Коротко поприветствуй один раз. Не проси контакты — бот спросит следующим шагом.';
-    const reply = await getSellerReply({ userMessage, leadContext });
-    await ctx.reply(reply);
-  } catch (e) { console.error('AI start error:', e?.message || e); }
-
   if (payload) {
+    // Реклама: сразу продавец ИИ, без повторного приветствия
+    try {
+      const reply = await getSellerReply({
+        userMessage: 'Пользователь пришёл по рекламе. Дай первую реплику без повторного приветствия и начни продавать.',
+        leadContext: { userId, source: 'ads', sessionId: payload, name: lead?.name, company: lead?.company, contact: lead?.contact },
+      });
+      await ctx.reply(reply);
+    } catch (e) { console.error('AI start error:', e?.message || e); }
+
     await notifyLead({ name: ctx.from?.first_name || lead?.name || '', contact: lead?.contact || '', company: lead?.company || '', answers: `sessionId:${payload}`, source: 'Реклама', status: 'готова к звонку' });
     return;
   }
 
-  // Органика: если данных нет — запускаем пошаговый сбор на сессии
-  if (!lead?.name || !lead?.contact || !lead?.company) {
-    setS(userId, { step: 'name', name: lead?.name, contact: lead?.contact, company: lead?.company });
-    await askName(ctx);
+  // Органика: если уже есть все контакты — сразу включаем продавца; иначе начинаем со первого отсутствующего шага
+  const hasName = Boolean(lead?.name);
+  const hasContact = Boolean(lead?.contact);
+  const hasCompany = Boolean(lead?.company);
+
+  if (hasName && hasContact && hasCompany) {
+    try {
+      const reply = await getSellerReply({
+        userMessage: 'Пользователь пришёл органически. У нас уже есть контакты, начни продавать без повторного приветствия.',
+        leadContext: { userId, source: 'organic', name: lead.name, company: lead.company, contact: lead.contact },
+      });
+      await ctx.reply(reply);
+    } catch (e) { console.error('AI start error:', e?.message || e); }
     return;
   }
+
+  // Выбираем первый недостающий шаг и задаём один вопрос
+  if (!hasName) { setS(userId, { step: 'name' }); await askName(ctx); return; }
+  if (!hasContact) { setS(userId, { step: 'contact', name: lead?.name || '' }); await askContact(ctx); return; }
+  if (!hasCompany) { setS(userId, { step: 'company', name: lead?.name || '', contact: lead?.contact || '' }); await askCompany(ctx); return; }
 });
 
 bot.command('broadcast', async (ctx) => {
