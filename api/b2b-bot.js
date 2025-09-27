@@ -90,8 +90,26 @@ bot.start(async (ctx) => {
   const payload = ctx.startPayload;
   const userId = ctx.from?.id;
 
+  // 1) Приветствие и гайд сразу
   await sendWelcome(ctx);
+  await sendChecklist(ctx);
 
+  // 2) Первая реплика ИИ (ads/organic контекст)
+  try {
+    const leadContext = payload
+      ? { userId, source: 'ads', sessionId: payload }
+      : { userId, source: 'organic' };
+    const userMessage = payload
+      ? 'Пользователь пришёл по рекламе, начни первую реплику-приветствие.'
+      : 'Пользователь пришёл органически. Коротко поприветствуй и объясни, что для подбора предложения понадобятся контакты.';
+    const reply = await getSellerReply({ userMessage, leadContext });
+    await ctx.reply(reply);
+  } catch (e) {
+    console.error('AI start error:', e?.message || e);
+    await ctx.reply('Рад познакомиться! Готов помочь подобрать формат под ваши задачи.');
+  }
+
+  // 3) Если реклама — сразу выходим (без сбора контактов здесь)
   if (payload) {
     await notifyLead({
       name: ctx.from?.first_name || '',
@@ -101,22 +119,10 @@ bot.start(async (ctx) => {
       source: 'Реклама',
       status: 'готова к звонку',
     });
-    try {
-      const reply = await getSellerReply({
-        userMessage: 'Пользователь пришёл по рекламе, начни первую реплику-приветствие.',
-        leadContext: { userId, source: 'ads', sessionId: payload },
-      });
-      await sendChecklist(ctx);
-      await ctx.reply(reply);
-    } catch (e) {
-      console.error('AI error (ads):', e?.message || e);
-      await sendChecklist(ctx);
-      await ctx.reply('Спасибо за обращение! Менеджер скоро свяжется с вами.');
-    }
     return;
   }
 
-  await sendChecklist(ctx);
+  // 4) Органика — продолжаем сбор контактов
   await askName(ctx);
 });
 
