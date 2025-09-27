@@ -41,6 +41,27 @@ function loadSystemPrompt() {
   return null;
 }
 
+async function safeChatCreate(args, retryModel = null) {
+  try {
+    return await client.chat.completions.create(args);
+  } catch (e) {
+    const code = e?.status || e?.code;
+    if (code === 429 || code === 402) {
+      await new Promise((r) => setTimeout(r, 700));
+      try {
+        return await client.chat.completions.create(args);
+      } catch (e2) {
+        if (retryModel) {
+          const alt = { ...args, model: retryModel };
+          return await client.chat.completions.create(alt);
+        }
+        throw e2;
+      }
+    }
+    throw e;
+  }
+}
+
 async function getSellerReply({ userMessage, leadContext, history }) {
   const cfg = loadServices();
   const servicesText = cfg?.services
@@ -78,13 +99,16 @@ async function getSellerReply({ userMessage, leadContext, history }) {
     { role: 'user', content: userMessage.slice(0, 4000) },
   ];
 
-  const resp = await client.chat.completions.create({
-    model: 'gpt-4o',
-    messages,
-    temperature: 0.3,
-  });
-
-  return resp.choices?.[0]?.message?.content?.trim() || 'Готов помочь! Расскажите, что вас интересует?';
+  try {
+    const resp = await safeChatCreate({ model: 'gpt-4o', messages, temperature: 0.3 }, 'gpt-4o-mini');
+    return resp.choices?.[0]?.message?.content?.trim() || 'Готов помочь! Расскажите, что вас интересует?';
+  } catch (e) {
+    const code = e?.status || e?.code;
+    if (code === 429 || code === 402) {
+      const err = new Error('AI_RATE_LIMITED'); err.code = code; throw err;
+    }
+    throw e;
+  }
 }
 
 module.exports = { getSellerReply };

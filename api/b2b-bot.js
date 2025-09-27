@@ -211,56 +211,32 @@ bot.on('message', async (ctx) => {
     const st2 = getS(userId);
 
     // Выбор продукта CashFlow
-    if (intent === 'cashflow') {
-      setS(userId, { phase: 'scheduling', product: 'cashflow' });
-      await offerSlots(ctx, 'cashflow');
-      return;
-    }
+    if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow' }); await offerSlots(ctx, 'cashflow'); return; }
 
     // Пользователь попросил назначить
-    if (intent === 'schedule') {
-      setS(userId, { phase: 'scheduling', product: st2.product || null });
-      await offerSlots(ctx, st2.product);
-      return;
-    }
+    if (intent === 'schedule') { setS(userId, { phase: 'scheduling', product: st2.product || null }); await offerSlots(ctx, st2.product); return; }
 
     // Пользователь прислал конкретный слот времени
     if (intent === 'time' || st2.phase === 'scheduling') {
       const slot = parseSlot(t);
-      if (slot) {
-        // Подтвердим и уведомим чат
-        let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
-        const when = slot.day ? `${slot.day} в ${slot.time}` : `${slot.time}`;
-        await ctx.reply(`Зафиксировал: ${when}. Менеджер свяжется в это время.`);
-        try {
-          await notifyLead({
-            name: lead?.name || ctx.from?.first_name || '',
-            contact: lead?.contact || '',
-            company: lead?.company || '',
-            answers: `Слот: ${when}${st2.product ? `, продукт: ${st2.product}` : ''}`,
-            source: 'Органика/Реклама',
-            status: 'согласован созвон',
-          });
-        } catch (e) { console.error('Notify schedule error:', e?.message || e); }
-        setS(userId, { phase: 'scheduled' });
-        return;
-      }
-      // Если слот не распознан — напомним варианты
-      await offerSlots(ctx, st2.product);
-      return;
+      if (slot) { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const when = slot.day ? `${slot.day} в ${slot.time}` : `${slot.time}`; await ctx.reply(`Зафиксировал: ${when}. Менеджер свяжется в это время.`); try { await notifyLead({ name: lead?.name || ctx.from?.first_name || '', contact: lead?.contact || '', company: lead?.company || '', answers: `Слот: ${when}${st2.product ? `, продукт: ${st2.product}` : ''}`, source: 'Органика/Реклама', status: 'согласован созвон', }); } catch (e) { console.error('Notify schedule error:', e?.message || e); } setS(userId, { phase: 'scheduled' }); return; }
+      await offerSlots(ctx, st2.product); return;
     }
 
-    // По умолчанию — ИИ без приветствий и повторной квалификации
+    // По умолчанию — ИИ
     try {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
-      const reply = await getSellerReply({
-        userMessage: t + ' Продолжай по делу, не проси повторно контакты и не переспрашивай интерес. Если выбран CashFlow или пользователь хочет обсудить, веди к назначению короткого созвона и предложи слоты времени.',
-        leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product },
-        history,
-      });
+      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не проси повторно контакты и не переспрашивай интерес. Если выбран CashFlow или пользователь хочет обсудить, веди к назначению короткого созвона и предложи слоты времени.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product }, history, });
       await ctx.reply(reply, { parse_mode: undefined });
-    } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
+    } catch (e) {
+      if (e?.message === 'AI_RATE_LIMITED') {
+        // Умный фолбэк на слоты
+        await offerSlots(ctx, st2.product);
+      } else {
+        console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
+      }
+    }
   }
 });
 
