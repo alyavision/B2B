@@ -14,7 +14,7 @@ if (!token) {
 const bot = new Telegraf(token, { handlerTimeout: 9_000 });
 
 const DEFAULT_WELCOME_IMAGE_URL = 'https://i.postimg.cc/vTd9Hx2L/B2B.png';
-const DEFAULT_WELCOME_TEXT = 'AI-ассистент, который знает, как превратить сотрудников в команду. Давайте соберем сильный коллектив через игру.';
+const DEFAULT_WELCOME_TEXT = 'Спасибо, что проявили интерес к FriendEvent! 🎉 В знак благодарности отправляем вам наш гайд «Как игры помогают выявить лидеров в команде».';
 
 const WORK_CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID);
 
@@ -34,8 +34,18 @@ async function isAdminInWorkChat(userId) {
   }
 }
 
+function sanitizeReply(text) {
+  if (!text) return text;
+  let t = String(text).trim();
+  // Удаляем одно или два начальных предложения-приветствия/формальности
+  t = t.replace(/^((?:здравствуйте|привет|добрый день|доброе утро|добрый вечер)[^\n.!?]*[.!?]\s*)/i, '');
+  t = t.replace(/^(спасибо,?\s+что[^\n.!?]*[.!?]\s*)/i, '');
+  t = t.trim();
+  return t;
+}
+
 function askName(ctx) {
-  return ctx.reply('Как вас зовут?', { reply_markup: { force_reply: true } });
+  return ctx.reply('Скажите, как я могу к вам обращаться?', { reply_markup: { force_reply: true } });
 }
 function askContact(ctx) {
   return ctx.reply('Оставьте, пожалуйста, телефон или e‑mail для связи', { reply_markup: { force_reply: true } });
@@ -75,16 +85,6 @@ async function sendWelcome(ctx) {
   const photo = process.env.WELCOME_IMAGE_URL || DEFAULT_WELCOME_IMAGE_URL;
   const caption = process.env.WELCOME_TEXT || DEFAULT_WELCOME_TEXT;
   try { if (photo) { await ctx.replyWithPhoto(photo, { caption, parse_mode: 'HTML' }); } else { await ctx.reply(caption); } } catch (e) { console.error('Welcome send error:', e?.message || e); await ctx.reply('Добро пожаловать!'); }
-}
-
-function sanitizeReply(text) {
-  if (!text) return text;
-  let t = String(text).trim();
-  // Удаляем одно или два начальных предложения-приветствия/формальности
-  t = t.replace(/^((?:здравствуйте|привет|добрый день|доброе утро|добрый вечер)[^\n.!?]*[.!?]\s*)/i, '');
-  t = t.replace(/^(спасибо,?\s+что[^\n.!?]*[.!?]\s*)/i, '');
-  t = t.trim();
-  return t;
 }
 
 bot.start(async (ctx) => {
