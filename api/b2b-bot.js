@@ -1,8 +1,8 @@
 const { Telegraf } = require('telegraf');
-const { appendLeadToSheet } = require('../utils/googleSheets');
+const { appendLeadToSheet, listAudienceUserIds } = require('../utils/googleSheets');
 const { notifyLead } = require('../utils/telegramNotify');
 const { getSellerReply } = require('../utils/aiSeller');
-const { scheduleReminders, cancelReminders } = require('../utils/reminders');
+// reminders и audience-redis не используем для простоты рассылки
 
 const token = process.env.B2B_BOT_TOKEN;
 if (!token) {
@@ -13,6 +13,18 @@ const bot = new Telegraf(token, { handlerTimeout: 9_000 });
 
 const DEFAULT_WELCOME_IMAGE_URL = 'https://i.postimg.cc/vTd9Hx2L/B2B.png';
 const DEFAULT_WELCOME_TEXT = 'AI-ассистент, который знает, как превратить сотрудников в команду. Давайте соберем сильный коллектив через игру.';
+
+const WORK_CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID);
+
+async function isAdminInWorkChat(userId) {
+  try {
+    if (!WORK_CHAT_ID) return false;
+    const m = await bot.telegram.getChatMember(WORK_CHAT_ID, userId);
+    return ['administrator', 'creator'].includes(m.status);
+  } catch {
+    return false;
+  }
+}
 
 function askName(ctx) {
   return ctx.reply('Введите имя', { reply_markup: { force_reply: true } });
@@ -25,39 +37,32 @@ function askCompany(ctx, name, contact) {
 }
 
 async function sendChecklist(ctx) {
-  await ctx.reply('Чек-лист: базовый гайд по старту. (PDF добавим позже)');
+  try {
+    const fileId = process.env.CHECKLIST_FILE_ID;
+    const fileUrl = process.env.CHECKLIST_URL;
+    if (fileId) { await ctx.replyWithDocument(fileId); return; }
+    if (fileUrl) { await ctx.replyWithDocument({ url: fileUrl }); return; }
+    await ctx.reply('Чек‑лист скоро будет доступен.');
+  } catch (e) {
+    console.error('Checklist send error:', e?.message || e);
+    await ctx.reply('Не удалось отправить чек‑лист. Отправлю позже.');
+  }
 }
 
 async function sendWelcome(ctx) {
   const photo = process.env.WELCOME_IMAGE_URL || DEFAULT_WELCOME_IMAGE_URL;
   const caption = process.env.WELCOME_TEXT || DEFAULT_WELCOME_TEXT;
   try {
-    if (photo) {
-      await ctx.replyWithPhoto(photo, { caption, parse_mode: 'HTML' });
-    } else {
-      await ctx.reply(caption);
-    }
+    if (photo) { await ctx.replyWithPhoto(photo, { caption, parse_mode: 'HTML' }); }
+    else { await ctx.reply(caption); }
   } catch (e) {
     console.error('Welcome send error:', e?.message || e);
     await ctx.reply('Добро пожаловать!');
   }
 }
 
-function maybeScheduleAfterFirstReply(ctx) {
-  const userId = ctx.from?.id;
-  const chatId = ctx.chat?.id;
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return;
-  scheduleReminders({ userId, chatId }).catch(() => {});
-}
-
-function maybeCancelReminders(ctx) {
-  const userId = ctx.from?.id;
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return;
-  cancelReminders(userId).catch(() => {});
-}
-
 bot.start(async (ctx) => {
-  const payload = ctx.startPayload; // параметр из /start
+  const payload = ctx.startPayload;
   const userId = ctx.from?.id;
 
   await sendWelcome(ctx);
@@ -76,25 +81,48 @@ bot.start(async (ctx) => {
         userMessage: 'Пользователь пришёл по рекламе, начни первую реплику-приветствие.',
         leadContext: { userId, source: 'ads', sessionId: payload },
       });
+      await sendChecklist(ctx);
       await ctx.reply(reply);
-      maybeScheduleAfterFirstReply(ctx);
     } catch (e) {
       console.error('AI error (ads):', e?.message || e);
+      await sendChecklist(ctx);
       await ctx.reply('Спасибо за обращение! Менеджер скоро свяжется с вами.');
     }
     return;
   }
 
+  await sendChecklist(ctx);
   await askName(ctx);
+});
+
+bot.command('broadcast', async (ctx) => {
+  const uid = ctx.from?.id;
+  const ok = await isAdminInWorkChat(uid);
+  if (!ok) return;
+  const audience = await listAudienceUserIds().catch(() => []);
+  await ctx.reply(`Введите текст рассылки (получателей: ${audience.length}). Ответьте на это сообщение.`);
 });
 
 bot.on('message', async (ctx) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return;
 
-  const text = msg.text.toLowerCase();
-  if (/(звонок|созвон|перезвон|свяжите|давайте созвонимся)/i.test(text)) {
-    maybeCancelReminders(ctx);
+  // Ответ на prompt рассылки
+  if (ctx.message.reply_to_message?.text?.includes('Введите текст рассылки')) {
+    const uid = ctx.from?.id;
+    const ok = await isAdminInWorkChat(uid);
+    if (!ok) return;
+    const textToSend = msg.text;
+    const audience = await listAudienceUserIds().catch(() => []);
+    const rate = 25;
+    let sent = 0;
+    for (const chatId of audience) {
+      try { await ctx.telegram.sendMessage(chatId, textToSend); } catch {}
+      sent += 1;
+      if (sent % rate === 0) { await new Promise((r) => setTimeout(r, 1000)); }
+    }
+    await ctx.reply(`Рассылка завершена. Отправлено: ${sent}`);
+    return;
   }
 
   const replyTo = msg.reply_to_message?.text || '';
@@ -141,15 +169,12 @@ bot.on('message', async (ctx) => {
       console.error('Notify error:', e?.message || e);
     }
 
-    await sendChecklist(ctx);
-
     try {
       const reply = await getSellerReply({
         userMessage: 'Пользователь оставил контакты, начни продавать.',
         leadContext: { userId: ctx.from?.id, source: 'organic', name, contact, company },
       });
       await ctx.reply(reply);
-      maybeScheduleAfterFirstReply(ctx);
     } catch (e) {
       console.error('AI error (organic):', e?.message || e);
       await ctx.reply('Спасибо! Мы получили контакты, менеджер свяжется с вами.');
@@ -164,7 +189,6 @@ bot.on('message', async (ctx) => {
         leadContext: { userId: ctx.from?.id, name: ctx.from?.first_name },
       });
       await ctx.reply(reply);
-      maybeScheduleAfterFirstReply(ctx);
     } catch (e) {
       console.error('AI error (general):', e?.message || e);
       await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
