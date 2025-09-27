@@ -146,24 +146,35 @@ bot.on('message', async (ctx) => {
   let step = st.step;
   if (!step) {
     if (replyTo.includes('как вас зовут?')) step = 'name';
-    else if (replyTo.includes('телефон') || replyTo.includes('e‑mail')) step = 'contact';
+    else if (/(телефон|e-?mail|почт)/i.test(replyTo)) step = 'contact';
     else if (replyTo.includes('как называется ваша компания?')) step = 'company';
   }
 
   if (step === 'name') { const name = msg.text.trim(); setS(userId, { step: 'contact', name }); await askContact(ctx); return; }
   if (step === 'contact') { const contact = msg.text.trim(); setS(userId, { step: 'company', contact }); await askCompany(ctx); return; }
   if (step === 'company') {
-    const company = msg.text.trim(); const { name, contact } = getS(userId);
+    const company = msg.text.trim();
+    // Восстановим name/contact из сессии или Sheets, чтобы не потерять данные между инстансами
+    let { name, contact } = getS(userId);
+    if (!name || !contact) {
+      try { const lead = await getLeadByUserId(userId); name = name || lead?.name || ctx.from?.first_name || ''; contact = contact || lead?.contact || ''; } catch {}
+    }
     try { await appendLeadToSheet({ source: 'Органика', userId, name: name || '', contact: contact || '', company, answers: '', checklistSent: true }); } catch (e) { console.error('Sheets append error:', e?.message || e); }
     try { await notifyLead({ name: name || '', contact: contact || '', company, answers: '', source: 'Органика', status: 'готова к звонку' }); } catch (e) { console.error('Notify error:', e?.message || e); }
     clearS(userId);
-    try { const reply = await getSellerReply({ userMessage: 'Пользователь оставил контакты, начни продавать. Не повторяй приветствие.', leadContext: { userId, source: 'organic', name, contact, company } }); await ctx.reply(reply); } catch (e) { console.error('AI error (organic):', e?.message || e); await ctx.reply('Спасибо! Мы получили контакты, менеджер свяжется с вами.'); }
+    try {
+      const reply = await getSellerReply({
+        userMessage: 'Контакты уже получены, не проси их повторно. Начни продавать по делу.',
+        leadContext: { userId, source: 'organic', name, contact, company },
+      });
+      await ctx.reply(reply);
+    } catch (e) { console.error('AI error (organic):', e?.message || e); await ctx.reply('Спасибо! Мы получили контакты, менеджер свяжется с вами.'); }
     return;
   }
 
   // Обычный диалог — без приветствий, с контекстом из Sheets
   if (!msg.text.startsWith('/')) {
-    try { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const reply = await getSellerReply({ userMessage: msg.text + ' Не используй приветствие, продолжай по делу.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact } }); await ctx.reply(reply); } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
+    try { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const reply = await getSellerReply({ userMessage: msg.text + ' Не используй приветствие и не проси повторно контакты.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact } }); await ctx.reply(reply); } catch (e) { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
   }
 });
 
