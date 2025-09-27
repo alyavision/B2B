@@ -178,6 +178,7 @@ bot.on('message', async (ctx) => {
     // если есть распознанный слот времени — сразу intent time
     if (parseSlot(t)) return 'time';
     if (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t)) return 'cashflow';
+    if (/(подробнее|подробно|расскажи|расскажите|что это|как проходит|формат|длительн|сколько стоит|цена|стоимост)/.test(t)) return 'details';
     if (/(давайте|готов|созвон|звонок|перезвон|назначить|как это сделать|хочу|погнали|обсудим|свяжитесь|перезвоните)/.test(t)) return 'schedule';
     return null;
   }
@@ -249,6 +250,24 @@ bot.on('message', async (ctx) => {
     const st2 = getS(userId);
 
     if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow' }); await askConvenientTime(ctx, 'cashflow'); return; }
+
+    // Детали по запросу пользователя
+    if (intent === 'details') {
+      const product = /бункер/.test(t.toLowerCase()) ? 'bunker' : (st2.product || (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t.toLowerCase()) ? 'cashflow' : null));
+      let info = '';
+      if (product === 'cashflow') {
+        info = 'CashFlow — обучающая игра на 2 часа: тренирует финансовое мышление, коммуникацию и принятие решений. Проводим в офисе или на выезде. Есть пакеты с диагностикой и отчётом для HR.';
+      } else if (product === 'bunker') {
+        info = '«Бункер» — командная ролевая игра на коммуникацию и переговоры. Помогает наладить взаимодействие между отделами, определить роли и снять напряжение.';
+      } else {
+        info = 'Мы проводим тимбилдинги и обучающие игры под задачи команды: коммуникация, ответственность, финмышление. Ведущие — практикующие психологи, есть отчёт для HR.';
+      }
+      await ctx.reply(info);
+      await askConvenientTime(ctx, product === 'cashflow' ? 'cashflow' : null);
+      setS(userId, { phase: 'scheduling', product: product || st2.product || null });
+      return;
+    }
+
     if (intent === 'schedule') { setS(userId, { phase: 'scheduling', product: st2.product || null }); await askConvenientTime(ctx, st2.product); return; }
 
     if (intent === 'time' || st2.phase === 'scheduling') {
@@ -261,7 +280,7 @@ bot.on('message', async (ctx) => {
     try {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
-      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не предлагай фиксированные слоты; попроси собеседника назвать удобное время и день словами или цифрами.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product }, history, });
+      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу, не предлагай фиксированные слоты; если просят подробности — кратко объясни ценность и затем попроси удобное время.', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product }, history, });
       await ctx.reply(reply, { parse_mode: undefined });
     } catch (e) {
       if (e?.message === 'AI_RATE_LIMITED') { await askConvenientTime(ctx, st2.product); } else { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
