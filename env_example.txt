@@ -1,0 +1,29 @@
+# Пример файла .env для FriendEvent Bot
+
+# Telegram Bot Token
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+
+# OpenAI API Key
+OPENAI_API_KEY=your-openai-api-key
+
+# OpenAI Organization & Project (опционально)
+OPENAI_ORG_ID=your-openai-org-id
+OPENAI_PROJECT_ID=your-openai-project-id
+
+# OpenAI Assistant ID
+OPENAI_ASSISTANT_ID=your-openai-assistant-id
+
+# Telegram Channel Username (например, @synaplinkai)
+TELEGRAM_CHANNEL_LINK=@yourchannel
+
+# Telegram Working Chat ID (например, -1001234567890)
+WORKING_CHAT_ID=-1001234567890
+
+# Logo Image URL или путь к файлу
+LOGO_IMAGE_URL=https://your-logo-url.png
+
+# Checklist file URL (PDF)
+CHECKLIST_URL=https://drive.google.com/file/d/xxxx/view?usp=sharing
+
+# Webhook secret (для валидации запроса от Telegram)
+TELEGRAM_WEBHOOK_SECRET=choose-a-strong-secret

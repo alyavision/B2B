@@ -1,28 +1,29 @@
-# B2B Telegram Bot (Telegraf + Vercel)
+# Synaplink AI Bot
+
+Telegram-бот-прокси для OpenAI-ассистента.
 
 ## Быстрый старт
-1. Установите переменные окружения в Vercel: `B2B_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, опционально `WEBHOOK_SECRET`.
-2. Задеплойте проект: `vercel --prod` (локально: `npm i -g vercel`).
-3. Установите вебхук на прод-URL:
 
-```bash
-curl -s -X POST "https://api.telegram.org/bot$B2B_BOT_TOKEN/setWebhook" \
-  -d "url=https://<ваш-домен>.vercel.app/api/b2b-bot" \
-  -d "secret_token=$WEBHOOK_SECRET"
-```
+1. Скопируйте `env_example.txt` в `.env` и заполните переменные.
+2. Установите зависимости:
+   ```
+   pip install -r requirements.txt
+   ```
+3. Запустите бота:
+   ```
+   python run_bot.py
+   ```
 
 ## Переменные окружения
-- `B2B_BOT_TOKEN` — токен Telegram-бота
-- `TELEGRAM_CHAT_ID` — ID рабочего чата (-100...) для уведомлений
-- `WEBHOOK_SECRET` — секрет заголовка `x-telegram-bot-api-secret-token` (опционально)
 
-## Структура
-- `api/b2b-bot.js` — серверлес-функция (вебхук Telegram)
-- `api/cron-reminders.js` — крон для авто-пингов (если включите Upstash Redis)
-- `utils/*` — утилиты (Google Sheets, уведомления, AI, напоминания)
-- `config/*` — профиль продавца, услуги, база знаний
-- `public/checklist.pdf` — ваш гайд, доступен как `/checklist.pdf`
+См. `env_example.txt` для примера.
 
-## Примечания
-- Только webhook; polling не используется.
-- При смене домена/пути — переустановите webhook.
+## Деплой на Railway
+
+1. Залейте проект на GitHub.
+2. В Railway создайте проект, подключите репозиторий.
+3. В настройках Railway добавьте переменные окружения из `.env`.
+4. Укажите команду запуска:
+   ```
+   python run_bot.py
+   ```
