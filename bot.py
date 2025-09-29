@@ -295,6 +295,7 @@ class SynaplinkBot:
             if update.message:
                 await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
             response = await asyncio.to_thread(self.openai_client.send_message, user_id, message_text)
+            logger.info(f"Diag: thread_id={self.openai_client.get_thread_id(user_id)}")
             logger.info(f"Ответ ассистента: {response}")
             # Проверяем, содержит ли ответ ассистента финальный блок заявки
             is_final = self._contains_final_application(response)

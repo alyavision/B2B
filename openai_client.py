@@ -73,6 +73,7 @@ class OpenAIClient:
         """
         try:
             thread_id = self.get_or_create_thread(user_id)
+            logger.info(f"OpenAI: send_message user={user_id} thread={thread_id}")
             
             # Добавляем сообщение пользователя в thread
             self.client.beta.threads.messages.create(
@@ -80,6 +81,7 @@ class OpenAIClient:
                 role="user",
                 content=message
             )
+            logger.info("OpenAI: user message appended to thread")
             
             # Запускаем ассистента
             run = self.client.beta.threads.runs.create(
@@ -87,6 +89,7 @@ class OpenAIClient:
                 assistant_id=self.assistant_id,
                 instructions=self.instructions
             )
+            logger.info(f"OpenAI: run created id={run.id}")
             
             # Ждем завершения выполнения
             while True:
@@ -94,7 +97,7 @@ class OpenAIClient:
                     thread_id=thread_id,
                     run_id=run.id
                 )
-                
+                logger.info(f"OpenAI: run status={run_status.status}")
                 if run_status.status == 'completed':
                     break
                 elif run_status.status == 'failed':
@@ -106,12 +109,15 @@ class OpenAIClient:
             
             # Получаем ответ ассистента
             messages = self.client.beta.threads.messages.list(thread_id=thread_id)
+            logger.info(f"OpenAI: messages fetched count={len(messages.data)}")
             
             # Ищем последнее сообщение ассистента
             for msg in messages.data:
                 if msg.role == "assistant":
                     # Проверяем, содержит ли сообщение заявку
                     content = msg.content[0].text.value if msg.content else ""
+                    preview = (content[:200] + "…") if len(content) > 200 else content
+                    logger.info(f"OpenAI: assistant reply preview=\n{preview}")
                     if self._is_application(content):
                         return self._format_application(content)
                     return content
@@ -174,3 +180,20 @@ class OpenAIClient:
         if user_id in self.threads:
             del self.threads[user_id]
             logger.info(f"Разговор сброшен для пользователя {user_id}")
+
+    def get_thread_id(self, user_id: int) -> str | None:
+        """Возвращает текущий thread_id пользователя, если он есть."""
+        return self.threads.get(user_id)
+
+    def get_last_assistant_message(self, user_id: int) -> str:
+        """Возвращает последний ответ ассистента в thread пользователя (для диагностики)."""
+        try:
+            thread_id = self.get_or_create_thread(user_id)
+            messages = self.client.beta.threads.messages.list(thread_id=thread_id)
+            for msg in messages.data:
+                if msg.role == "assistant":
+                    return msg.content[0].text.value if msg.content else ""
+            return ""
+        except Exception as e:
+            logger.error(f"debug get_last_assistant_message error: {e}")
+            return ""
