@@ -7,6 +7,8 @@ import openai
 from openai import OpenAI
 from config import Config
 import logging
+import asyncio
+from typing import Optional
 from pathlib import Path
 
 # Настраиваем логирование
@@ -37,7 +39,8 @@ class OpenAIClient:
                 )
         self.client = OpenAI(**client_kwargs)
         self.assistant_id = Config.OPENAI_ASSISTANT_ID
-        self.threads = {}  # Хранит thread_id для каждого пользователя
+        self.threads = {}
+        self._redis = self._init_redis()
         # Не переопределяем инструкции ассистента — используем то, что задано у ассистента в OpenAI
         self.instructions = None
         
@@ -46,6 +49,7 @@ class OpenAIClient:
         try:
             thread = self.client.beta.threads.create()
             self.threads[user_id] = thread.id
+            self._save_thread_id(user_id, thread.id)
             logger.info(f"Создан новый thread {thread.id} для пользователя {user_id}")
             return thread.id
         except Exception as e:
@@ -54,9 +58,14 @@ class OpenAIClient:
     
     def get_or_create_thread(self, user_id: int):
         """Получает существующий thread или создает новый"""
-        if user_id not in self.threads:
-            return self.create_thread(user_id)
-        return self.threads[user_id]
+        if user_id in self.threads:
+            return self.threads[user_id]
+        # Пытаемся прочитать из Redis
+        cached = self._load_thread_id(user_id)
+        if cached:
+            self.threads[user_id] = cached
+            return cached
+        return self.create_thread(user_id)
     
     def send_message(self, user_id: int, message: str):
         """
@@ -169,6 +178,7 @@ class OpenAIClient:
         if user_id in self.threads:
             del self.threads[user_id]
             logger.info(f"Разговор сброшен для пользователя {user_id}")
+        self._delete_thread_id(user_id)
 
     def get_thread_id(self, user_id: int) -> str | None:
         """Возвращает текущий thread_id пользователя, если он есть."""
@@ -186,3 +196,45 @@ class OpenAIClient:
         except Exception as e:
             logger.error(f"debug get_last_assistant_message error: {e}")
             return ""
+
+    # ===== Redis helpers =====
+    def _init_redis(self):
+        try:
+            from redis import Redis
+            if getattr(Config, 'REDIS_URL', None):
+                return Redis.from_url(Config.REDIS_URL, decode_responses=True)
+        except Exception as e:
+            logger.warning(f"Redis не инициализирован: {e}")
+        return None
+
+    def _redis_key(self, user_id: int) -> Optional[str]:
+        if not self._redis:
+            return None
+        prefix = getattr(Config, 'REDIS_PREFIX', 'b2bbot:thread:')
+        return f"{prefix}{user_id}"
+
+    def _save_thread_id(self, user_id: int, thread_id: str) -> None:
+        key = self._redis_key(user_id)
+        if key:
+            try:
+                # TTL 7 дней
+                self._redis.set(key, thread_id, ex=7*24*3600)
+            except Exception as e:
+                logger.warning(f"Redis save thread_id error: {e}")
+
+    def _load_thread_id(self, user_id: int) -> Optional[str]:
+        key = self._redis_key(user_id)
+        if key:
+            try:
+                return self._redis.get(key)
+            except Exception as e:
+                logger.warning(f"Redis load thread_id error: {e}")
+        return None
+
+    def _delete_thread_id(self, user_id: int) -> None:
+        key = self._redis_key(user_id)
+        if key:
+            try:
+                self._redis.delete(key)
+            except Exception as e:
+                logger.warning(f"Redis delete thread_id error: {e}")

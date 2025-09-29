@@ -41,6 +41,10 @@ class Config:
 
 	# Секрет для Telegram Webhook (опционально, для проверки заголовка X-Telegram-Bot-Api-Secret-Token)
 	TELEGRAM_WEBHOOK_SECRET = os.getenv('TELEGRAM_WEBHOOK_SECRET')
+
+	# Redis URL для сохранения thread_id (опционально, рекомендуется для serverless)
+	REDIS_URL = os.getenv('REDIS_URL')
+	REDIS_PREFIX = os.getenv('REDIS_PREFIX', 'b2bbot:thread:')
 	
 	@classmethod
 	def validate(cls):
