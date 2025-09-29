@@ -103,9 +103,11 @@ class OpenAIClient:
             logger.info("OpenAI: user message appended to thread")
             
             # Запускаем ассистента
+            # Жёстко отключаем инструкции ассистента на время выполнения ран
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
-                assistant_id=self.assistant_id
+                assistant_id=self.assistant_id,
+                instructions=""
             )
             logger.info(f"OpenAI: run created id={run.id}")
             
