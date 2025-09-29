@@ -271,13 +271,10 @@ class SynaplinkBot:
         message_text = update.message.text if update.message else None
         logger.info(f"Пользователь: {user_id}, текст: {message_text}")
 
-        # Проверяем состояние пользователя
+        # Если состояние отсутствует или не 'chatting' (серверлесс среда может терять память),
+        # автоматически переводим пользователя в режим общения
         if user_id not in self.user_states or self.user_states[user_id] != "chatting":
-            if update.message:
-                await update.message.reply_text(
-                    "Пожалуйста, начните с команды /start для начала работы с ботом."
-                )
-            return
+            self.user_states[user_id] = "chatting"
 
         # Отправляем сообщение ассистенту OpenAI
         try:
