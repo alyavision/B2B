@@ -7,6 +7,7 @@ import openai
 from openai import OpenAI
 from config import Config
 import logging
+from pathlib import Path
 
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +38,9 @@ class OpenAIClient:
         self.client = OpenAI(**client_kwargs)
         self.assistant_id = Config.OPENAI_ASSISTANT_ID
         self.threads = {}  # Хранит thread_id для каждого пользователя
+        self.instructions = self._load_prompt_instructions()
+        if self.instructions:
+            logger.info(f"Загружены инструкции ассистента из config/prompt.md ({len(self.instructions)} символов)")
         
     def create_thread(self, user_id: int):
         """Создает новый thread для пользователя"""
@@ -79,7 +83,8 @@ class OpenAIClient:
             # Запускаем ассистента
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
-                assistant_id=self.assistant_id
+                assistant_id=self.assistant_id,
+                instructions=self.instructions if self.instructions else None,
             )
             
             # Ждем завершения выполнения
@@ -115,6 +120,17 @@ class OpenAIClient:
         except Exception as e:
             logger.error(f"Ошибка при отправке сообщения: {e}")
             return "Произошла ошибка. Попробуйте позже."
+    
+    def _load_prompt_instructions(self) -> str:
+        """Читает инструкции из файла config/prompt.md (если есть)."""
+        try:
+            prompt_path = Path(__file__).parent / 'config' / 'prompt.md'
+            if prompt_path.exists():
+                text = prompt_path.read_text(encoding='utf-8').strip()
+                return text
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить config/prompt.md: {e}")
+        return ""
     
     def _is_application(self, content: str) -> bool:
         """Проверяет, содержит ли сообщение заявку"""
