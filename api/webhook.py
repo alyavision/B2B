@@ -11,11 +11,6 @@ from bot import SynaplinkBot
 
 app = FastAPI()
 
-# Инициализируем бота и приложение Telegram один раз (cold start)
-_bot_instance = SynaplinkBot()
-telegram_app: Application = _bot_instance.application
-_initialized = False
-
 
 def _verify_secret(request: Request) -> None:
     secret = getattr(Config, 'TELEGRAM_WEBHOOK_SECRET', None)
@@ -35,19 +30,24 @@ async def telegram_webhook(request: Request):
         body = await request.body()
         data = json.loads(body.decode('utf-8'))
 
+    # Создаём приложение на каждый запрос, чтобы оно было привязано к актуальному event loop
+    bot_instance = SynaplinkBot()
+    telegram_app: Application = bot_instance.application
+
     update = Update.de_json(data, telegram_app.bot)
-    global _initialized
-    if not _initialized:
-        await telegram_app.initialize()
-        _initialized = True
     try:
+        await telegram_app.initialize()
         await telegram_app.process_update(update)
         return JSONResponse({"ok": True})
     except Exception as e:
         import logging, traceback
         logging.getLogger(__name__).error(f"process_update error: {e}\n{traceback.format_exc()}")
-        # Всегда 200, чтобы Telegram не ретраил бесконечно
         return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
+    finally:
+        try:
+            await telegram_app.shutdown()
+        except Exception:
+            pass
 
 
 @app.get("/")
