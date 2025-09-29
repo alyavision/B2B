@@ -103,18 +103,20 @@ class SynaplinkBot:
             return
         chat_id = update.effective_chat.id
         url = Config.CHECKLIST_URL
+        logger.info(f"📄 CHECKLIST_URL={url}")
         caption = "Как игры помогают выявить лидеров в команде"
         # 1) Пытаемся скачать (сначала сконвертированную GDrive ссылку) и отправить как байты с нужным именем
         try:
             direct = self._gdrive_to_direct(url)
             resp = requests.get(direct, timeout=30)
-            if resp.status_code == 200 and resp.content:
+            content_type = resp.headers.get('Content-Type', '')
+            if resp.status_code == 200 and resp.content and 'pdf' in content_type.lower():
                 buf = BytesIO(resp.content)
-                buf.name = "5 точек роста с ИИ.pdf"
+                buf.name = "Как игры помогают выявить лидеров в команде.pdf"
                 await context.bot.send_document(chat_id=chat_id, document=buf, caption=caption)
-                logger.info("✅ Чек-лист отправлен как байты с именем '5 точек роста с ИИ.pdf'")
+                logger.info("✅ Чек-лист отправлен как байты (PDF)")
                 return
-            logger.warning(f"Не удалось скачать чек-лист: HTTP {resp.status_code}")
+            logger.warning(f"Не удалось скачать валидный PDF: HTTP {resp.status_code}, Content-Type={content_type}")
         except Exception as e:
             logger.warning(f"Ошибка скачивания чек-листа: {e}")
         # 2) Фолбэк: отправляем по прямой/исходной ссылке (имя файла может задать источник)
