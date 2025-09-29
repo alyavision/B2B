@@ -139,25 +139,37 @@ class SynaplinkBot:
         except Exception as e:
             logger.error(f"Ошибка при отправке логотипа: {e}")
 
-        # 2) Красивое приветствие
+        # 2) Короткое приветствие бренда
         welcome_text = (
             "🎉 Добро пожаловать в FriendEvent!\n\n"
             "Мы — команда, которая помогает создавать яркие события и впечатления.\n\n"
             "📎 Дарим вам гайд благодарности: \n"
             "«Как сделать ваше событие незабываемым» — кратко и по делу.\n\n"
-            "🤖 Наш ИИ‑ассистент готов к диалогу: соберём ваши данные и поможем с выбором.\n\n"
-            "👇 Нажмите кнопку ниже, чтобы начать общение."
+            "🤖 Ассистент дальше задаст пару вопросов, чтобы быстрее помочь."
         )
-        keyboard = [[InlineKeyboardButton("✅ Начать диалог", callback_data="start_chat")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         target_message = update.message or (update.callback_query and update.callback_query.message)
         try:
-            await target_message.reply_text(welcome_text, reply_markup=reply_markup)
+            await target_message.reply_text(welcome_text)
         except Exception as e:
             logger.error(f"Ошибка при отправке приветствия: {e}")
 
         # 3) Автосенд чек-листа (надёжный)
         await self._send_checklist(update, context)
+
+        # 4) Сразу начинаем диалог — ассистент первым
+        try:
+            self.user_states[user_id] = "chatting"
+            initial_message = (
+                "Сделай первый шаг от имени FriendEvent: поприветствуй, коротко представься, "
+                "попроси имя и кратко описать задачу/событие (город/дата/формат/бюджет по возможности)."
+            )
+            assistant_reply = await asyncio.to_thread(self.openai_client.send_message, user_id, initial_message)
+            if update.message:
+                await update.message.reply_text(assistant_reply)
+            elif update.callback_query and update.callback_query.message:
+                await update.callback_query.message.reply_text(assistant_reply)
+        except Exception as e:
+            logger.error(f"Ошибка старта первичного сообщения ассистента: {e}")
     
     async def _send_logo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Отправляет логотип компании FriendEvent"""
