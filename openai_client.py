@@ -41,6 +41,18 @@ class OpenAIClient:
         self.assistant_id = Config.OPENAI_ASSISTANT_ID
         self.threads = {}
         self._redis = self._init_redis()
+        # Диагностика: убеждаемся, что используем именно ваш ассистент
+        try:
+            a = self.client.beta.assistants.retrieve(self.assistant_id)
+            tools_list = getattr(a, 'tools', []) or []
+            tools_names = [getattr(t, 'type', str(t)) for t in tools_list]
+            has_instructions = bool(getattr(a, 'instructions', '') or '')
+            logger.info(
+                f"Assistant bound: id={a.id}, name={getattr(a, 'name', '')}, model={getattr(a, 'model', '')}, "
+                f"tools={tools_names}, instructions={'yes' if has_instructions else 'no'}"
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось получить метаданные ассистента: {e}")
         # Не переопределяем инструкции ассистента — используем то, что задано у ассистента в OpenAI
         self.instructions = None
         
@@ -114,7 +126,7 @@ class OpenAIClient:
                 time.sleep(1)
             
             # Получаем ответ ассистента
-            messages = self.client.beta.threads.messages.list(thread_id=thread_id)
+            messages = self.client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=10)
             logger.info(f"OpenAI: messages fetched count={len(messages.data)}")
             
             # Ищем последнее сообщение ассистента
