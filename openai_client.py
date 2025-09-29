@@ -18,8 +18,13 @@ class OpenAIClient:
     def __init__(self):
         """Инициализация клиента OpenAI с поддержкой org/project"""
         client_kwargs = {"api_key": Config.OPENAI_API_KEY}
-        if getattr(Config, 'OPENAI_ORG_ID', None):
+        api_key = Config.OPENAI_API_KEY or ""
+        use_project_scoped_key = isinstance(api_key, str) and api_key.startswith("sk-proj-")
+        # Если ключ проектный (sk-proj-), не передаем organization: это может вызывать 401
+        if not use_project_scoped_key and getattr(Config, 'OPENAI_ORG_ID', None):
             client_kwargs["organization"] = Config.OPENAI_ORG_ID
+        elif use_project_scoped_key and getattr(Config, 'OPENAI_ORG_ID', None):
+            logger.warning("Проектный ключ обнаружен (sk-proj-*): заголовок organization не будет установлен")
         if getattr(Config, 'OPENAI_PROJECT_ID', None):
             project_id = Config.OPENAI_PROJECT_ID
             # Валидация: реальный ID проекта начинается с "proj_". Если нет — пропускаем, иначе получим 401.
