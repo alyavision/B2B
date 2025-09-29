@@ -105,12 +105,19 @@ class SynaplinkBot:
         url = Config.CHECKLIST_URL
         logger.info(f"📄 CHECKLIST_URL={url}")
         caption = "Как игры помогают выявить лидеров в команде"
-        # 1) Пытаемся скачать (сначала сконвертированную GDrive ссылку) и отправить как байты с нужным именем
+        # Попытка A: сразу отправить как документ по прямой ссылке (пусть Telegram скачивает сам)
+        try:
+            await context.bot.send_document(chat_id=chat_id, document=self._gdrive_to_direct(url), caption=caption)
+            logger.info("✅ Чек-лист отправлен Telegram по URL (прямая загрузка)")
+            return
+        except Exception as e:
+            logger.warning(f"Не удалось отправить документ по URL напрямую: {e}")
+        # Попытка B: скачать и отправить байтами, проверив сигнатуру PDF
         try:
             direct = self._gdrive_to_direct(url)
             resp = requests.get(direct, timeout=30)
             content_type = resp.headers.get('Content-Type', '')
-            if resp.status_code == 200 and resp.content and 'pdf' in content_type.lower():
+            if resp.status_code == 200 and resp.content and (b'%PDF' in resp.content[:8] or 'pdf' in content_type.lower()):
                 buf = BytesIO(resp.content)
                 buf.name = "Как игры помогают выявить лидеров в команде.pdf"
                 await context.bot.send_document(chat_id=chat_id, document=buf, caption=caption)
@@ -119,10 +126,10 @@ class SynaplinkBot:
             logger.warning(f"Не удалось скачать валидный PDF: HTTP {resp.status_code}, Content-Type={content_type}")
         except Exception as e:
             logger.warning(f"Ошибка скачивания чек-листа: {e}")
-        # 2) Фолбэк: отправляем по прямой/исходной ссылке (имя файла может задать источник)
+        # Попытка C: отправляем текстом ссылку (чтобы пользователь точно получил доступ)
         try:
-            await context.bot.send_document(chat_id=chat_id, document=self._gdrive_to_direct(url), caption=caption)
-            logger.info("✅ Чек-лист отправлен ссылкой (fallback)")
+            await context.bot.send_message(chat_id=chat_id, text=f"{caption}\n{self._gdrive_to_direct(url)}")
+            logger.info("✅ Чек-лист отправлен как текстовая ссылка (fallback)")
         except Exception as e:
             logger.error(f"❌ Не удалось отправить чек-лист ни одним способом: {e}")
 
