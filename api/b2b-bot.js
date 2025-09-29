@@ -259,58 +259,49 @@ bot.on('message', async (ctx) => {
   // Обычный диалог — без приветствий, с контекстом из Sheets
   if (!msg.text.startsWith('/')) {
     const t = msg.text;
-    const intent = detectIntent(t);
     const st2 = getS(userId);
 
-    if (intent === 'cashflow') { setS(userId, { phase: 'scheduling', product: 'cashflow', started: true, lastAsk: 'time' }); await askConvenientTime(ctx, 'cashflow'); return; }
-    if (intent === 'bunker') { setS(userId, { phase: 'scheduling', product: 'bunker', started: true, lastAsk: 'time' }); await askConvenientTime(ctx, null); return; }
-
-    // Детали по запросу пользователя — сначала фактология без CTA, чтобы не давить
-    if (intent === 'details') {
-      const product = /бункер/.test(t.toLowerCase()) ? 'bunker' : (st2.product || (/cash\s*flow|кэш ?фло|кеш ?фло/.test(t.toLowerCase()) ? 'cashflow' : null));
-      let info = '';
-      if (product === 'cashflow') {
-        info = 'CashFlow: 2 часа, 6–12 участников за столом, ведут практикующие психологи/бизнес‑тренеры. Цель — финмышление, коммуникация, принятие решений. Есть вариант серии игр и отчёт для HR.';
-      } else if (product === 'bunker') {
-        info = '«Бункер»: командная ролевая игра на коммуникацию и переговоры. 1,5–2 часа, помогает снять напряжение между отделами, увидеть роли и улучшить взаимодействие.';
-      } else {
-        info = 'Проводим тимбилдинги и обучающие игры под задачи: коммуникация, ответственность, финмышление. Ведущие — психологи, предоставляем отчёт HR.';
+    // 1) Пользователь прислал конкретный слот времени → фиксируем
+    const slot = parseSlot(t);
+    if (slot || st2.phase === 'scheduling') {
+      const s = slot;
+      if (s) {
+        let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
+        const when = s.day ? `${s.day} в ${s.time}` : `${s.time}`;
+        await ctx.reply(`Зафиксировал: ${when}. Менеджер свяжется в это время.`);
+        try {
+          await notifyLead({
+            name: lead?.name || ctx.from?.first_name || '',
+            contact: lead?.contact || '',
+            company: lead?.company || '',
+            answers: `Слот: ${when}${st2.product ? `, продукт: ${st2.product}` : ''}`,
+            source: 'Органика/Реклама',
+            status: 'согласован созвон',
+          });
+        } catch (e) { console.error('Notify schedule error:', e?.message || e); }
+        setS(userId, { phase: 'scheduled', lastAsk: 'scheduled' });
+        return;
       }
-      const depth = (st2.detailsDepth || 0) + 1;
-      await ctx.reply(info);
-      if (depth < 2) {
-        await ctx.reply('Что уточнить: формат, длительность, состав/количество, локация, стоимость, отчёт для HR?');
-        setS(userId, { detailsDepth: depth, lastAsk: 'details' });
-      } else {
-        // Со второй итерации мягко просим время, но не повторяем, если уже спрашивали
-        if (st2.lastAsk !== 'time') {
-          await askConvenientTime(ctx, product === 'cashflow' ? 'cashflow' : null);
-          setS(userId, { detailsDepth: depth, lastAsk: 'time', phase: 'scheduling', product: product || st2.product || null });
-        } else {
-          setS(userId, { detailsDepth: depth });
-        }
-      }
-      return;
     }
 
-    if (intent === 'schedule') { setS(userId, { phase: 'scheduling', product: st2.product || null, lastAsk: 'time' }); await askConvenientTime(ctx, st2.product); return; }
-
-    if (intent === 'time' || st2.phase === 'scheduling') {
-      const slot = parseSlot(t);
-      if (slot) { let lead = null; try { lead = await getLeadByUserId(userId); } catch {} const when = slot.day ? `${slot.day} в ${slot.time}` : `${slot.time}`; await ctx.reply(`Зафиксировал: ${when}. Менеджер свяжется в это время.`); try { await notifyLead({ name: lead?.name || ctx.from?.first_name || '', contact: lead?.contact || '', company: lead?.company || '', answers: `Слот: ${when}${st2.product ? `, продукт: ${st2.product}` : ''}`, source: 'Органика/Реклама', status: 'согласован созвон', }); } catch (e) { console.error('Notify schedule error:', e?.message || e); } setS(userId, { phase: 'scheduled', lastAsk: 'scheduled' }); return; }
-      if (st2.lastAsk !== 'time') { await askConvenientTime(ctx, st2.product); setS(userId, { lastAsk: 'time' }); }
-      return;
-    }
-
-    // По умолчанию — ИИ
+    // 2) Весь остальной диалог ведёт ассистент (или GPT), без наших CTA
     try {
       let lead = null; try { lead = await getLeadByUserId(userId); } catch {}
       const history = [{ role: 'user', content: t }];
-      const reply = await getSellerReply({ userMessage: t + ' Продолжай по делу. Если просят подробности — объясни и только потом попроси удобное время (и не повторяй это подряд).', leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product, started: Boolean(st2.started) }, history, });
+      const reply = await getSellerReply({
+        userMessage: t,
+        leadContext: { userId, name: lead?.name, company: lead?.company, contact: lead?.contact, product: st2.product, started: Boolean(st2.started) },
+        history,
+      });
       await ctx.reply(sanitizeReply(reply), { parse_mode: undefined });
       setS(userId, { started: true });
     } catch (e) {
-      if (e?.message === 'AI_RATE_LIMITED') { if (st2.lastAsk !== 'time') { await askConvenientTime(ctx, st2.product); setS(userId, { lastAsk: 'time' }); } } else { console.error('AI error (general):', e?.message || e); await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.'); }
+      if (e?.message === 'AI_RATE_LIMITED') {
+        await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
+      } else {
+        console.error('AI error (general):', e?.message || e);
+        await ctx.reply('Принял сообщение. Вернусь с ответом чуть позже.');
+      }
     }
   }
 });
