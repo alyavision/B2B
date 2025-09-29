@@ -38,9 +38,10 @@ class OpenAIClient:
         self.client = OpenAI(**client_kwargs)
         self.assistant_id = Config.OPENAI_ASSISTANT_ID
         self.threads = {}  # Хранит thread_id для каждого пользователя
-        self.instructions = self._load_prompt_instructions()
+        loaded = self._load_prompt_instructions()
+        self.instructions = loaded if loaded else self._default_instructions()
         if self.instructions:
-            logger.info(f"Загружены инструкции ассистента из config/prompt.md ({len(self.instructions)} символов)")
+            logger.info(f"Инструкции ассистента активны ({len(self.instructions)} символов)")
         
     def create_thread(self, user_id: int):
         """Создает новый thread для пользователя"""
@@ -83,7 +84,8 @@ class OpenAIClient:
             # Запускаем ассистента
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
-                assistant_id=self.assistant_id
+                assistant_id=self.assistant_id,
+                instructions=self.instructions
             )
             
             # Ждем завершения выполнения
@@ -130,6 +132,17 @@ class OpenAIClient:
         except Exception as e:
             logger.warning(f"Не удалось загрузить config/prompt.md: {e}")
         return ""
+
+    def _default_instructions(self) -> str:
+        """Нейтральные инструкции по умолчанию: вести себя как консультант на базе знаний."""
+        return (
+            "Ты — вежливый и компетентный консультант компании FriendEvent. Отвечай как человек, \n"
+            "кратко и по делу, опираясь на свою базу знаний. Разрешено рассказывать об игровых форматах, \n"
+            "включая CashFlow: что это, цель, длительность, состав участников, формат (офлайн/онлайн), \n"
+            "ожидаемые результаты для команды. Если нет точных цен — предлагай варианты и запрашивай бюджет. \n"
+            "Уточняй детали по необходимости. Когда у клиента будет готовность, оформи финальный блок заявки \n"
+            "по шаблону: [Заявка в рабочий чат] + Имя/Телефон/Телеграм/Email/Запрос."
+        )
     
     def _is_application(self, content: str) -> bool:
         """Проверяет, содержит ли сообщение заявку"""
