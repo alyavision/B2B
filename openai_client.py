@@ -21,7 +21,14 @@ class OpenAIClient:
         if getattr(Config, 'OPENAI_ORG_ID', None):
             client_kwargs["organization"] = Config.OPENAI_ORG_ID
         if getattr(Config, 'OPENAI_PROJECT_ID', None):
-            client_kwargs["project"] = Config.OPENAI_PROJECT_ID
+            project_id = Config.OPENAI_PROJECT_ID
+            # Валидация: реальный ID проекта начинается с "proj_". Если нет — пропускаем, иначе получим 401.
+            if isinstance(project_id, str) and project_id.startswith("proj_"):
+                client_kwargs["project"] = project_id
+            else:
+                logger.warning(
+                    "OPENAI_PROJECT_ID выглядит некорректно (ожидается 'proj_*'). Параметр project не будет передан."
+                )
         self.client = OpenAI(**client_kwargs)
         self.assistant_id = Config.OPENAI_ASSISTANT_ID
         self.threads = {}  # Хранит thread_id для каждого пользователя
