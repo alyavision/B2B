@@ -4,6 +4,7 @@
 """
 
 import logging
+import asyncio
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -234,7 +235,7 @@ class SynaplinkBot:
         # Отправляем служебный стартовый сигнал ассистенту
         try:
             initial_message = "Начни диалог от имени FriendEvent: представься, попроси имя и цель."
-            _ = self.openai_client.send_message(user_id, initial_message)
+            _ = await asyncio.to_thread(self.openai_client.send_message, user_id, initial_message)
             # Обновлённое приветственное сообщение без упоминания подписки
             welcome_message = (
                 "Я готов помочь с вашим событием: подскажем формат, площадку и смету. "
@@ -280,7 +281,7 @@ class SynaplinkBot:
         try:
             if update.message:
                 await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-            response = self.openai_client.send_message(user_id, message_text)
+            response = await asyncio.to_thread(self.openai_client.send_message, user_id, message_text)
             logger.info(f"Ответ ассистента: {response}")
             # Проверяем, содержит ли ответ ассистента финальный блок заявки
             is_final = self._contains_final_application(response)
