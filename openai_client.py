@@ -83,8 +83,7 @@ class OpenAIClient:
             # Запускаем ассистента
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
-                assistant_id=self.assistant_id,
-                instructions=self.instructions if self.instructions else None,
+                assistant_id=self.assistant_id
             )
             
             # Ждем завершения выполнения

@@ -160,8 +160,9 @@ class SynaplinkBot:
         try:
             self.user_states[user_id] = "chatting"
             initial_message = (
-                "Сделай первый шаг от имени FriendEvent: поприветствуй, коротко представься, "
-                "попроси имя и кратко описать задачу/событие (город/дата/формат/бюджет по возможности)."
+                "Начни общение как вежливый консультант FriendEvent. Веди себя естественно как человек, "
+                "опираясь на свою базу знаний. Поздоровайся, узнай контекст и потребности. Когда появится готовность, "
+                "оформи финальный блок заявки по шаблону с контактами."
             )
             assistant_reply = await asyncio.to_thread(self.openai_client.send_message, user_id, initial_message)
             if update.message:
