@@ -96,6 +96,24 @@ class SynaplinkBot:
         except Exception:
             return url
 
+    def _strip_markdown(self, text: str) -> str:
+        """Удаляет базовую Markdown-разметку у ответа ассистента."""
+        if not text:
+            return text
+        try:
+            # [текст](url) -> текст
+            text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", text)
+            # **x**, *x*, __x__, _x_ -> x
+            text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+            text = re.sub(r"\*(.*?)\*", r"\1", text)
+            text = re.sub(r"__(.*?)__", r"\1", text)
+            text = re.sub(r"_(.*?)_", r"\1", text)
+            # `x` или ```x``` -> x
+            text = re.sub(r"`{1,3}([\s\S]*?)`{1,3}", r"\1", text)
+            return text
+        except Exception:
+            return text
+
     async def _send_checklist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Надёжная отправка чек-листа пользователю с красивым именем файла."""
         if not getattr(Config, 'CHECKLIST_URL', None):
@@ -163,9 +181,9 @@ class SynaplinkBot:
             )
             assistant_reply = await asyncio.to_thread(self.openai_client.send_message, user_id, initial_message)
             if update.message:
-                await update.message.reply_text(assistant_reply)
+                await update.message.reply_text(self._strip_markdown(assistant_reply))
             elif update.callback_query and update.callback_query.message:
-                await update.callback_query.message.reply_text(assistant_reply)
+                await update.callback_query.message.reply_text(self._strip_markdown(assistant_reply))
         except Exception as e:
             logger.error(f"Ошибка старта первичного сообщения ассистента: {e}")
     
@@ -298,7 +316,7 @@ class SynaplinkBot:
                 logger.info("Пробую отправить заявку в рабочий чат...")
                 await self._send_application_to_working_chat(context, response, user_id)
                 if update.message:
-                    await update.message.reply_text(response)
+                    await update.message.reply_text(self._strip_markdown(response))
             else:
                 if update.message:
                     await update.message.reply_text(response)
