@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import JSONResponse
 from telegram import Update
 from telegram.ext import Application
@@ -43,5 +43,15 @@ async def telegram_webhook(request: Request):
 @app.get("/")
 async def health():
     return {"status": "ok"}
+
+@app.get("/favicon.ico")
+async def favicon_ico():
+    # Возвращаем 204 No Content, чтобы браузер не считал это ошибкой
+    return Response(content=b"", media_type="image/x-icon", status_code=204)
+
+@app.get("/favicon.png")
+async def favicon_png():
+    # Возвращаем 204 No Content
+    return Response(content=b"", media_type="image/png", status_code=204)
 
 
