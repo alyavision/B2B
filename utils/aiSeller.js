@@ -65,28 +65,41 @@ async function safeChatCreate(args, retryModel = null) {
   }
 }
 
+function buildAssistantInstructions(leadContext) {
+  const parts = [
+    'Веди себя как опытный B2B‑продавец. Коротко, по делу, без приветствий и без Markdown.',
+    'Никогда не проси имя/телефон/e‑mail/компанию — сбор контактов делает сам бот.',
+    'Не повторяй квалификацию, если диалог уже идёт. Отвечай на вопрос и веди к смысловому следующему шагу.',
+    'Если уместно, попроси собеседника назвать удобный день и время В СВОБОДНОЙ ФОРМЕ. Не навязывай фиксированные слоты.',
+  ];
+  if (leadContext?.source === 'ads') {
+    parts.push('Пользователь пришёл из рекламы: работай с готовым лидом, не проси контакты.');
+  }
+  if (leadContext?.started) {
+    parts.push('Диалог уже начат: не здороваться повторно.');
+  }
+  return parts.join(' ');
+}
+
 async function runAssistantOnce({ userMessage, leadContext, history }) {
   if (!ASSISTANT_ID) throw new Error('ASSISTANT_ID_MISSING');
-  // Сформируем единое пользовательское сообщение с контекстом и историей
   const hist = Array.isArray(history) ? history.slice(-8) : [];
   const historyText = hist.map(h => `${h.role === 'assistant' ? 'Ассистент' : 'Пользователь'}: ${h.content}`).join('\n');
   const contextText = `Контекст лида: ${JSON.stringify(leadContext || {}, null, 0)}\nИстория (последние сообщения):\n${historyText}\nТекущее сообщение: ${userMessage}`;
 
-  const thread = await client.beta.threads.create({
-    messages: [{ role: 'user', content: contextText }],
-  });
+  const thread = await client.beta.threads.create({ messages: [{ role: 'user', content: contextText }] });
 
   const run = await client.beta.threads.runs.create({
     thread_id: thread.id,
     assistant_id: ASSISTANT_ID,
+    instructions: buildAssistantInstructions(leadContext),
   });
 
-  // Ждём завершения до ~6 секунд (serverless ограничение), с шагом 300мс
   const started = Date.now();
   while (true) {
     const r = await client.beta.threads.runs.retrieve(thread.id, run.id);
     if (r.status === 'completed') break;
-    if (r.status === 'failed' || r.status === 'cancelled' || r.status === 'expired') {
+    if (['failed', 'cancelled', 'expired'].includes(r.status)) {
       throw new Error(`ASSISTANT_RUN_${r.status.toUpperCase()}`);
     }
     if (Date.now() - started > 6000) {
@@ -102,17 +115,15 @@ async function runAssistantOnce({ userMessage, leadContext, history }) {
 }
 
 async function getSellerReply({ userMessage, leadContext, history }) {
-  // Режим ассистента
   if (SELLER_MODE === 'assistant' && ASSISTANT_ID) {
     try {
       const text = await runAssistantOnce({ userMessage, leadContext, history });
       if (text) return text;
     } catch (e) {
-      // Падают на 429/таймаутах —fallback к обычному чату ниже
+      // fallback ниже
     }
   }
 
-  // Обычный чат (наш текущий режим)
   const cfg = loadServices();
   const servicesText = cfg?.services
     ? cfg.services.map(s => `- ${s.name}: ${s.pitches?.join(', ') || ''}`).join('\n')
@@ -120,7 +131,7 @@ async function getSellerReply({ userMessage, leadContext, history }) {
 
   const company = cfg?.company || 'Наша компания';
   const tone = cfg?.tone || 'Вы, дружелюбно, кратко, по делу';
-  const cta = cfg?.cta || 'Предложите выбрать время для короткого созвона сегодня/завтра.';
+  const cta = cfg?.cta || 'Попроси собеседника назвать удобный день и время для короткого созвона в свободной форме (не навязывай слоты).';
 
   const customSystem = loadSystemPrompt();
   const knowledge = loadCompanyKnowledge();
@@ -128,9 +139,8 @@ async function getSellerReply({ userMessage, leadContext, history }) {
   const baseSystem = [
     `Ты опытный B2B-продавец компании ${company}.`,
     `Тон: ${tone}.`,
-    'Цель: квалифицировать (роль, компания, бюджет, сроки) и довести до следующего шага.',
+    'Не используй приветствия и Markdown. Никогда не проси имя/телефон/e‑mail/компанию.',
     `CTA: ${cta}.`,
-    'Не используй Markdown/эмодзи, только простой текст. Не повторяй приветствие, если диалог уже идёт.',
   ].join(' ');
 
   const systemParts = [];
@@ -138,25 +148,11 @@ async function getSellerReply({ userMessage, leadContext, history }) {
   if (servicesText) systemParts.push('Наши услуги и офферы:\n' + servicesText);
   if (knowledge) systemParts.push('Справка компании (используй при ответах, но не цитируй целиком):\n' + knowledge);
 
-  // Динамические правила
   const hasAnyContact = Boolean(leadContext && (leadContext.contact || leadContext.company || leadContext.name));
-  const missing = [];
-  if (leadContext) {
-    if (!leadContext.name) missing.push('имя');
-    if (!leadContext.contact) missing.push('контакт');
-    if (!leadContext.company) missing.push('компания');
-  }
-  if (hasAnyContact) {
-    systemParts.push('Контакты частично/полностью получены. Никогда не проси контакты повторно. Не делай повторную квалификацию. Не начинай с приветствия.');
-  }
-  if (missing.length > 0 && missing.length < 3) {
-    systemParts.push('Если не хватает данных, разрешено спросить максимум ОДИН недостающий пункт (' + missing.join(', ') + '), затем сразу продолжай по делу: ценность и CTA на созвон.');
-  }
+  if (hasAnyContact) systemParts.push('Контакты уже есть — не проси их повторно.');
 
   const system = systemParts.join('\n\n');
-
   const clippedHistory = Array.isArray(history) ? history.slice(-8) : [];
-
   const messages = [
     { role: 'system', content: system },
     { role: 'user', content: `Контекст лида: ${JSON.stringify(leadContext || {}, null, 0)}` },
