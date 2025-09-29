@@ -35,22 +35,39 @@ async function runAssistantOnce({ userMessage, leadContext, history }) {
   const historyText = hist.map(h => `${h.role === 'assistant' ? 'Ассистент' : 'Пользователь'}: ${h.content}`).join('\n');
   const contextText = `Контекст лида: ${JSON.stringify(leadContext || {}, null, 0)}\nИстория (последние сообщения):\n${historyText}\nТекущее сообщение: ${userMessage}`;
 
-  const thread = await client.beta.threads.create({ messages: [{ role: 'user', content: contextText }] });
-  const run = await client.beta.threads.runs.create({ thread_id: thread.id, assistant_id: ASSISTANT_ID });
+  const tryRun = async () => {
+    const thread = await client.beta.threads.create({ messages: [{ role: 'user', content: contextText }] });
+    const run = await client.beta.threads.runs.create({ thread_id: thread.id, assistant_id: ASSISTANT_ID });
+    const started = Date.now();
+    while (true) {
+      const r = await client.beta.threads.runs.retrieve(thread.id, run.id);
+      if (r.status === 'completed') {
+        const msgs = await client.beta.threads.messages.list(thread.id, { order: 'desc', limit: 1 });
+        const msg = msgs.data?.[0];
+        const text = msg?.content?.[0]?.text?.value || '';
+        return text.trim();
+      }
+      if (['failed', 'cancelled', 'expired'].includes(r.status)) {
+        throw new Error(`ASSISTANT_RUN_${r.status.toUpperCase()}`);
+      }
+      if (Date.now() - started > 9000) {
+        throw new Error('ASSISTANT_TIMEOUT');
+      }
+      await new Promise((res) => setTimeout(res, 300));
+    }
+  };
 
-  const started = Date.now();
-  while (true) {
-    const r = await client.beta.threads.runs.retrieve(thread.id, run.id);
-    if (r.status === 'completed') break;
-    if (['failed', 'cancelled', 'expired'].includes(r.status)) { throw new Error(`ASSISTANT_RUN_${r.status.toUpperCase()}`); }
-    if (Date.now() - started > 6000) { throw new Error('ASSISTANT_TIMEOUT'); }
-    await new Promise((res) => setTimeout(res, 300));
+  try {
+    return await tryRun();
+  } catch (e) {
+    if (e?.message === 'ASSISTANT_TIMEOUT') {
+      // одна повторная попытка
+      try {
+        return await tryRun();
+      } catch {}
+    }
+    throw e;
   }
-
-  const msgs = await client.beta.threads.messages.list(thread.id, { order: 'desc', limit: 1 });
-  const msg = msgs.data?.[0];
-  const text = msg?.content?.[0]?.text?.value || '';
-  return text.trim();
 }
 
 async function getSellerReply({ userMessage, leadContext, history }) {
