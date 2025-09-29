@@ -4,6 +4,9 @@ const path = require('path');
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const SELLER_MODE = (process.env.SELLER_MODE || '').toLowerCase();
+const ASSISTANT_ID = process.env.SELLER_ASSISTANT_ID;
+
 function loadServices() {
   try {
     if (process.env.SELLER_SERVICES) {
@@ -62,7 +65,54 @@ async function safeChatCreate(args, retryModel = null) {
   }
 }
 
+async function runAssistantOnce({ userMessage, leadContext, history }) {
+  if (!ASSISTANT_ID) throw new Error('ASSISTANT_ID_MISSING');
+  // Сформируем единое пользовательское сообщение с контекстом и историей
+  const hist = Array.isArray(history) ? history.slice(-8) : [];
+  const historyText = hist.map(h => `${h.role === 'assistant' ? 'Ассистент' : 'Пользователь'}: ${h.content}`).join('\n');
+  const contextText = `Контекст лида: ${JSON.stringify(leadContext || {}, null, 0)}\nИстория (последние сообщения):\n${historyText}\nТекущее сообщение: ${userMessage}`;
+
+  const thread = await client.beta.threads.create({
+    messages: [{ role: 'user', content: contextText }],
+  });
+
+  const run = await client.beta.threads.runs.create({
+    thread_id: thread.id,
+    assistant_id: ASSISTANT_ID,
+  });
+
+  // Ждём завершения до ~6 секунд (serverless ограничение), с шагом 300мс
+  const started = Date.now();
+  while (true) {
+    const r = await client.beta.threads.runs.retrieve(thread.id, run.id);
+    if (r.status === 'completed') break;
+    if (r.status === 'failed' || r.status === 'cancelled' || r.status === 'expired') {
+      throw new Error(`ASSISTANT_RUN_${r.status.toUpperCase()}`);
+    }
+    if (Date.now() - started > 6000) {
+      throw new Error('ASSISTANT_TIMEOUT');
+    }
+    await new Promise((res) => setTimeout(res, 300));
+  }
+
+  const msgs = await client.beta.threads.messages.list(thread.id, { order: 'desc', limit: 1 });
+  const msg = msgs.data?.[0];
+  const text = msg?.content?.[0]?.text?.value || '';
+  return text.trim();
+}
+
 async function getSellerReply({ userMessage, leadContext, history }) {
+  // Режим ассистента
+  if (SELLER_MODE === 'assistant' && ASSISTANT_ID) {
+    try {
+      const text = await runAssistantOnce({ userMessage, leadContext, history });
+      if (text) return text;
+    } catch (e) {
+      // Падают на 429/таймаутах —fallback к обычному чату ниже
+    }
+  }
+
+  // Обычный чат (наш текущий режим)
   const cfg = loadServices();
   const servicesText = cfg?.services
     ? cfg.services.map(s => `- ${s.name}: ${s.pitches?.join(', ') || ''}`).join('\n')
@@ -88,7 +138,7 @@ async function getSellerReply({ userMessage, leadContext, history }) {
   if (servicesText) systemParts.push('Наши услуги и офферы:\n' + servicesText);
   if (knowledge) systemParts.push('Справка компании (используй при ответах, но не цитируй целиком):\n' + knowledge);
 
-  // Динамические правила на основе контекста лида
+  // Динамические правила
   const hasAnyContact = Boolean(leadContext && (leadContext.contact || leadContext.company || leadContext.name));
   const missing = [];
   if (leadContext) {
