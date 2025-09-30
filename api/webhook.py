@@ -65,3 +65,39 @@ async def favicon_png():
     return Response(content=b"", media_type="image/png", status_code=204)
 
 
+@app.post("/api/broadcast")
+async def broadcast(request: Request):
+    # Защита по секрету в заголовке X-Broadcast-Secret
+    secret = request.headers.get("X-Broadcast-Secret")
+    if not getattr(Config, 'BROADCAST_SECRET', None) or secret != Config.BROADCAST_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    payload = await request.json()
+    text = payload.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    # Создаём приложение на этот запрос
+    bot_instance = SynaplinkBot()
+    telegram_app: Application = bot_instance.application
+
+    # Получаем список подписчиков
+    subs = bot_instance.openai_client.get_all_subscribers()
+    sent = 0
+    failed = 0
+    try:
+        await telegram_app.initialize()
+        for chat_id in subs:
+            try:
+                await telegram_app.bot.send_message(chat_id=int(chat_id), text=text)
+                sent += 1
+            except Exception:
+                failed += 1
+        return {"ok": True, "sent": sent, "failed": failed}
+    finally:
+        try:
+            await telegram_app.shutdown()
+        except Exception:
+            pass
+
+

@@ -18,7 +18,7 @@ from telegram.ext import (
 from config import Config
 from openai_client import OpenAIClient
 from application_handler import ApplicationHandler
-import requests
+import requests  # type: ignore[reportMissingImports]
 from io import BytesIO
 
 # Настраиваем логирование
@@ -162,6 +162,11 @@ class SynaplinkBot:
         logger.info("🚀 Команда /start вызвана!")
         user_id = update.effective_user.id if update.effective_user else None
         self.user_states[user_id] = "start"
+        # Добавляем пользователя в подписчики (для рассылки)
+        try:
+            self.openai_client.add_subscriber(update.effective_chat.id)
+        except Exception:
+            pass
 
         # 1) Баннер
         try:
@@ -307,6 +312,11 @@ class SynaplinkBot:
         # автоматически переводим пользователя в режим общения
         if user_id not in self.user_states or self.user_states[user_id] != "chatting":
             self.user_states[user_id] = "chatting"
+            # Добавляем пользователя в подписчики
+            try:
+                self.openai_client.add_subscriber(update.effective_chat.id)
+            except Exception:
+                pass
 
         # Отправляем сообщение ассистенту OpenAI
         try:

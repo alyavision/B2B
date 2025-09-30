@@ -45,6 +45,12 @@ class Config:
 	# Redis URL для сохранения thread_id (опционально, рекомендуется для serverless)
 	REDIS_URL = os.getenv('REDIS_URL')
 	REDIS_PREFIX = os.getenv('REDIS_PREFIX', 'b2bbot:thread:')
+
+	# Ключ множества подписчиков для рассылки
+	SUBS_SET_KEY = os.getenv('SUBS_SET_KEY', 'b2bbot:subs')
+
+	# Секрет для ручного вызова рассылки через HTTP (защита эндпоинта)
+	BROADCAST_SECRET = os.getenv('BROADCAST_SECRET')
 	
 	@classmethod
 	def validate(cls):

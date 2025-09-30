@@ -290,6 +290,32 @@ class OpenAIClient:
             except Exception as e:
                 logger.warning(f"Redis save thread_id error: {e}")
 
+    # Подписчики рассылки
+    def add_subscriber(self, chat_id: int) -> None:
+        if not self._redis:
+            return
+        try:
+            self._redis.sadd(getattr(Config, 'SUBS_SET_KEY', 'b2bbot:subs'), str(chat_id))
+        except Exception as e:
+            logger.warning(f"Redis add_subscriber error: {e}")
+
+    def remove_subscriber(self, chat_id: int) -> None:
+        if not self._redis:
+            return
+        try:
+            self._redis.srem(getattr(Config, 'SUBS_SET_KEY', 'b2bbot:subs'), str(chat_id))
+        except Exception as e:
+            logger.warning(f"Redis remove_subscriber error: {e}")
+
+    def get_all_subscribers(self):
+        if not self._redis:
+            return []
+        try:
+            return list(self._redis.smembers(getattr(Config, 'SUBS_SET_KEY', 'b2bbot:subs')))
+        except Exception as e:
+            logger.warning(f"Redis get_all_subscribers error: {e}")
+            return []
+
     def _load_thread_id(self, user_id: int) -> Optional[str]:
         key = self._redis_key(user_id)
         if key:
