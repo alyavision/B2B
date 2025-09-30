@@ -51,6 +51,14 @@ class Config:
 
 	# Секрет для ручного вызова рассылки через HTTP (защита эндпоинта)
 	BROADCAST_SECRET = os.getenv('BROADCAST_SECRET')
+
+	# Админы, кому разрешена рассылка через /broadcast (CSV user_id)
+	BROADCAST_ADMIN_IDS = os.getenv('BROADCAST_ADMIN_IDS', '')
+
+	@classmethod
+	def is_admin(cls, user_id: int) -> bool:
+		ids = [i.strip() for i in cls.BROADCAST_ADMIN_IDS.split(',') if i.strip()]
+		return str(user_id) in ids
 	
 	@classmethod
 	def validate(cls):

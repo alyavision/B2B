@@ -82,6 +82,10 @@ class SynaplinkBot:
         # Обработчик команды /reset для сброса разговора
         self.application.add_handler(CommandHandler("reset", self.reset_command))
         logger.info("✅ Обработчик команды /reset зарегистрирован")
+
+        # Обработчик команды /broadcast для админов
+        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        logger.info("✅ Обработчик команды /broadcast зарегистрирован")
         
         logger.info("Все обработчики настроены успешно")
         
@@ -413,6 +417,28 @@ class SynaplinkBot:
             "🔄 Разговор сброшен!\n\n"
             "Используйте /start для начала нового диалога."
         )
+
+    async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Админ-команда для массовой рассылки: /broadcast текст"""
+        user_id = update.effective_user.id if update.effective_user else 0
+        if not Config.is_admin(user_id):
+            await update.message.reply_text("Недостаточно прав.")
+            return
+        text = ' '.join(context.args) if context.args else ''
+        if not text:
+            await update.message.reply_text("Использование: /broadcast текст сообщения")
+            return
+        subs = self.openai_client.get_all_subscribers()
+        sent = 0
+        failed = 0
+        for chat_id in subs:
+            try:
+                await context.bot.send_message(chat_id=int(chat_id), text=text)
+                sent += 1
+                await asyncio.sleep(0.06)
+            except Exception:
+                failed += 1
+        await update.message.reply_text(f"Отправлено: {sent}, ошибок: {failed}")
     
     def run(self):
         """Запускает бота"""
