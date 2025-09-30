@@ -5,6 +5,7 @@ from telegram.ext import Application
 import json
 import hmac
 import hashlib
+import asyncio
 
 from config import Config
 from bot import SynaplinkBot
@@ -91,8 +92,21 @@ async def broadcast(request: Request):
             try:
                 await telegram_app.bot.send_message(chat_id=int(chat_id), text=text)
                 sent += 1
-            except Exception:
-                failed += 1
+            except Exception as e:
+                # Если Telegram просит подождать (429), пробуем один раз с паузой
+                retry_after = getattr(e, 'retry_after', None)
+                if isinstance(retry_after, (int, float)) and retry_after > 0:
+                    await asyncio.sleep(float(retry_after) + 0.5)
+                    try:
+                        await telegram_app.bot.send_message(chat_id=int(chat_id), text=text)
+                        sent += 1
+                        continue
+                    except Exception:
+                        failed += 1
+                else:
+                    failed += 1
+            # Плавная задержка между отправками, чтобы не упереться в лимиты
+            await asyncio.sleep(0.06)
         return {"ok": True, "sent": sent, "failed": failed}
     finally:
         try:
