@@ -54,7 +54,7 @@ class OpenAIClient:
         except Exception as e:
             logger.warning(f"Не удалось получить метаданные ассистента: {e}")
         # Не переопределяем инструкции ассистента — используем то, что задано у ассистента в OpenAI
-        self.instructions = None
+        # self.instructions = None
         
     def create_thread(self, user_id: int):
         """Создает новый thread для пользователя"""
@@ -107,7 +107,7 @@ class OpenAIClient:
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=self.assistant_id,
-                instructions=""
+                # instructions=""
             )
             logger.info(f"OpenAI: run created id={run.id}")
             
