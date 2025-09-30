@@ -137,6 +137,7 @@ class OpenAIClient:
                 if msg.role == "assistant":
                     # Собираем плоский текст без аннотаций/цитат
                     content = self._extract_text_without_annotations(msg)
+                    content = self._strip_markdown_simple(content)
                     preview = (content[:200] + "…") if len(content) > 200 else content
                     logger.info(f"OpenAI: assistant reply preview=\n{preview}")
                     if self._is_application(content):
@@ -190,6 +191,27 @@ class OpenAIClient:
                 return message.content[0].text.value if message.content else ""
             except Exception:
                 return ""
+
+    def _strip_markdown_simple(self, text: str) -> str:
+        """Убирает базовую Markdown-разметку (жирный/курсив/код/ссылки)."""
+        if not text:
+            return text
+        try:
+            # Ссылки [текст](url) -> текст
+            text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", text)
+            # Блок/инлайн код
+            text = re.sub(r"`{1,3}([\s\S]*?)`{1,3}", r"\1", text)
+            # Жирный/курсив на * и _ (многострочно)
+            text = re.sub(r"\*\*([\s\S]*?)\*\*", r"\1", text)
+            text = re.sub(r"\*([\s\S]*?)\*", r"\1", text)
+            text = re.sub(r"__([\s\S]*?)__", r"\1", text)
+            text = re.sub(r"_([\s\S]*?)_", r"\1", text)
+            # На случай одиночных маркеров — просто убрать символы
+            text = text.replace("**", "")
+            text = text.replace("*", "")
+            return text
+        except Exception:
+            return text
 
     def _default_instructions(self) -> str:
         return ""
