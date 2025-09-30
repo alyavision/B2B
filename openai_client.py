@@ -10,6 +10,7 @@ import logging
 import asyncio
 from typing import Optional
 from pathlib import Path
+import re
 
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
@@ -54,7 +55,7 @@ class OpenAIClient:
         except Exception as e:
             logger.warning(f"Не удалось получить метаданные ассистента: {e}")
         # Не переопределяем инструкции ассистента — используем то, что задано у ассистента в OpenAI
-        # self.instructions = None
+        # self.instructions = None  # Я вот тут убрал
         
     def create_thread(self, user_id: int):
         """Создает новый thread для пользователя"""
@@ -107,7 +108,7 @@ class OpenAIClient:
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=self.assistant_id,
-                # instructions=""
+                # instructions="" # Я вот тут убрал
             )
             logger.info(f"OpenAI: run created id={run.id}")
             
@@ -134,8 +135,8 @@ class OpenAIClient:
             # Ищем последнее сообщение ассистента
             for msg in messages.data:
                 if msg.role == "assistant":
-                    # Проверяем, содержит ли сообщение заявку
-                    content = msg.content[0].text.value if msg.content else ""
+                    # Собираем плоский текст без аннотаций/цитат
+                    content = self._extract_text_without_annotations(msg)
                     preview = (content[:200] + "…") if len(content) > 200 else content
                     logger.info(f"OpenAI: assistant reply preview=\n{preview}")
                     if self._is_application(content):
@@ -158,6 +159,37 @@ class OpenAIClient:
         except Exception as e:
             logger.warning(f"Не удалось загрузить config/prompt.md: {e}")
         return ""
+
+    def _extract_text_without_annotations(self, message) -> str:
+        """Возвращает объединённый текст всех частей контента без citation/markdown артефактов."""
+        try:
+            parts = []
+            for item in getattr(message, 'content', []) or []:
+                if getattr(item, 'type', '') == 'text' and getattr(item, 'text', None):
+                    text_value = getattr(item.text, 'value', '') or ''
+                    annotations = getattr(item.text, 'annotations', []) or []
+                    # Удаляем диапазоны, помеченные аннотациями (file_citation, file_path)
+                    try:
+                        # Индексы аннотаций относятся к текущему text_value
+                        for ann in sorted(annotations, key=lambda a: getattr(a, 'start_index', 0), reverse=True):
+                            start = getattr(ann, 'start_index', None)
+                            end = getattr(ann, 'end_index', None)
+                            if start is not None and end is not None and 0 <= start <= end <= len(text_value):
+                                text_value = text_value[:start] + text_value[end:]
+                    except Exception:
+                        pass
+                    parts.append(text_value)
+            combined = ''.join(parts)
+            # Удаляем возможные маркеры цитат вида 【...】 и символ †
+            combined = re.sub(r"【[^】]*】", "", combined)
+            combined = combined.replace("†", "")
+            return combined.strip()
+        except Exception:
+            # Фолбэк: берём первое текстовое содержимое как есть
+            try:
+                return message.content[0].text.value if message.content else ""
+            except Exception:
+                return ""
 
     def _default_instructions(self) -> str:
         return ""
@@ -214,7 +246,7 @@ class OpenAIClient:
     # ===== Redis helpers =====
     def _init_redis(self):
         try:
-            from redis import Redis
+            from redis import Redis  # type: ignore[reportMissingImports]
             if getattr(Config, 'REDIS_URL', None):
                 return Redis.from_url(Config.REDIS_URL, decode_responses=True)
         except Exception as e:
