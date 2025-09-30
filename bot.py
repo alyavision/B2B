@@ -110,6 +110,12 @@ class SynaplinkBot:
             text = re.sub(r"_(.*?)_", r"\1", text)
             # `x` или ```x``` -> x
             text = re.sub(r"`{1,3}([\s\S]*?)`{1,3}", r"\1", text)
+            # Удаляем цитаты Retrieval вида 【...】 и спецсимвол †
+            text = re.sub(r"【[^】]*】", "", text)
+            text = text.replace("†", "")
+            # Нормализуем лишние пробелы
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\s*\n\s*\n\s*", "\n\n", text).strip()
             return text
         except Exception:
             return text
