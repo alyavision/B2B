@@ -55,6 +55,12 @@ class Config:
 	# Админы, кому разрешена рассылка через /broadcast (CSV user_id)
 	BROADCAST_ADMIN_IDS = os.getenv('BROADCAST_ADMIN_IDS', '')
 
+	# Google Sheets
+	GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID')
+	GOOGLE_SHEETS_SHEET_NAME = os.getenv('GOOGLE_SHEETS_SHEET_NAME', 'leads')
+	# JSON сервисного аккаунта как Base64 или как сырая строка
+	GOOGLE_SHEETS_CREDENTIALS = os.getenv('GOOGLE_SHEETS_CREDENTIALS')
+
 	@classmethod
 	def is_admin(cls, user_id: int) -> bool:
 		ids = [i.strip() for i in cls.BROADCAST_ADMIN_IDS.split(',') if i.strip()]

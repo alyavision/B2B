@@ -18,6 +18,7 @@ from telegram.ext import (
 from config import Config
 from openai_client import OpenAIClient
 from application_handler import ApplicationHandler
+from google_sheets_client import append_lead_row
 import requests  # type: ignore[reportMissingImports]
 from io import BytesIO
 
@@ -389,6 +390,16 @@ class SynaplinkBot:
             )
             
             logger.info(f"Заявка от пользователя {user_id} отправлена в рабочий чат {Config.WORKING_CHAT_ID}")
+
+            # Пишем в Google Sheets (порядок колонок: Имя, Телефон, Телеграм, Запрос)
+            try:
+                name = self._extract_field(application_text, 'Имя:')
+                phone = self._extract_field(application_text, 'Телефон:')
+                tg = self._extract_field(application_text, 'Телеграм:')
+                req = self._extract_field(application_text, 'Запрос:')
+                _ = append_lead_row([name, phone, tg, req])
+            except Exception as e:
+                logger.warning(f"Sheets: не удалось записать лид: {e}")
             
         except Exception as e:
             logger.error(f"Ошибка при отправке заявки в рабочий чат: {e}")
@@ -402,6 +413,16 @@ class SynaplinkBot:
                 logger.info(f"Заявка отправлена простым текстом")
             except Exception as e2:
                 logger.error(f"Критическая ошибка при отправке заявки: {e2}")
+
+    def _extract_field(self, text: str, marker: str) -> str:
+        try:
+            # Берём часть после маркера до конца строки
+            if marker in text:
+                part = text.split(marker, 1)[1]
+                return part.split('\n', 1)[0].strip()
+        except Exception:
+            pass
+        return ''
     
     async def reset_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /reset - сбрасывает разговор"""
