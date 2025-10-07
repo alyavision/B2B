@@ -39,16 +39,6 @@ class Config:
 	# Checklist file URL (PDF)
 	CHECKLIST_URL = os.getenv('CHECKLIST_URL')
 
-	# Checklist caption and filename (optional, to avoid hardcoded old text)
-	CHECKLIST_CAPTION = os.getenv(
-		'CHECKLIST_CAPTION',
-		"В знак благодарности отправляем вам наш гайд."
-	)
-	CHECKLIST_FILENAME = os.getenv(
-		'CHECKLIST_FILENAME',
-		"guide.pdf"
-	)
-
 	# Секрет для Telegram Webhook (опционально, для проверки заголовка X-Telegram-Bot-Api-Secret-Token)
 	TELEGRAM_WEBHOOK_SECRET = os.getenv('TELEGRAM_WEBHOOK_SECRET')
 
@@ -67,7 +57,7 @@ class Config:
 
 	# Google Sheets
 	GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID')
-	GOOGLE_SHEETS_SHEET_NAME = os.getenv('GOOGLE_SHEETS_SHEET_NAME', 'leadsb2c')
+	GOOGLE_SHEETS_SHEET_NAME = os.getenv('GOOGLE_SHEETS_SHEET_NAME', 'leads')
 	# JSON сервисного аккаунта как Base64 или как сырая строка
 	GOOGLE_SHEETS_CREDENTIALS = os.getenv('GOOGLE_SHEETS_CREDENTIALS')
 
@@ -84,8 +74,7 @@ class Config:
 			'OPENAI_API_KEY', 
 			'OPENAI_ASSISTANT_ID',
 			'WORKING_CHAT_ID',
-			'LOGO_IMAGE_URL',
-			'CHECKLIST_URL'
+			'LOGO_IMAGE_URL'
 		]
 		
 		missing_vars = []
