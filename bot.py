@@ -6,6 +6,7 @@
 import logging
 import asyncio
 import re
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, 
@@ -36,6 +37,7 @@ class SynaplinkBot:
         """Инициализация бота"""
         try:
             logger.info("🔧 Инициализация бота...")
+            logger.info("BUILD: 2025-10-07-logging-caption-filename")
             logger.info(f"🔑 Создание Application с токеном: {Config.TELEGRAM_BOT_TOKEN[:10]}...")
             
             self.application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
@@ -126,35 +128,45 @@ class SynaplinkBot:
             return text
 
     async def _send_checklist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Надёжная отправка чек-листа пользователю с красивым именем файла."""
+        """Надёжная отправка чек-листа пользователю без проблем с кэшем Telegram."""
         if not getattr(Config, 'CHECKLIST_URL', None):
             logger.info("ℹ️ CHECKLIST_URL не задан — пропускаем отправку чек-листа")
             return
         chat_id = update.effective_chat.id
         url = Config.CHECKLIST_URL
         logger.info(f"📄 CHECKLIST_URL={url}")
-        caption = "В знак благодарности отправляем вам наш гайд «Как игры помогают выявить лидеров в команде»."
-        # Попытка A: сразу отправить как документ по прямой ссылке (пусть Telegram скачивает сам)
-        try:
-            await context.bot.send_document(chat_id=chat_id, document=self._gdrive_to_direct(url), caption=caption)
-            logger.info("✅ Чек-лист отправлен Telegram по URL (прямая загрузка)")
-            return
-        except Exception as e:
-            logger.warning(f"Не удалось отправить документ по URL напрямую: {e}")
-        # Попытка B: скачать и отправить байтами, проверив сигнатуру PDF
+        caption = getattr(Config, 'CHECKLIST_CAPTION', None) or "Как игры помогают прокачать себя"
+        filename_env = getattr(Config, 'CHECKLIST_FILENAME', None) or "Как игры помогают прокачать себя.pdf"
+        logger.info(f"📄 CHECKLIST_CAPTION={caption}")
+        logger.info(f"📄 CHECKLIST_FILENAME={filename_env}")
+
+        # Попытка A: скачать и отправить байтами (обходит кэш Telegram по URL)
         try:
             direct = self._gdrive_to_direct(url)
             resp = requests.get(direct, timeout=30)
             content_type = resp.headers.get('Content-Type', '')
             if resp.status_code == 200 and resp.content and (b'%PDF' in resp.content[:8] or 'pdf' in content_type.lower()):
                 buf = BytesIO(resp.content)
-                buf.name = "Как игры помогают выявить лидеров в команде.pdf"
+                # Имя файла управляется через переменную окружения
+                buf.name = filename_env
                 await context.bot.send_document(chat_id=chat_id, document=buf, caption=caption)
                 logger.info("✅ Чек-лист отправлен как байты (PDF)")
                 return
             logger.warning(f"Не удалось скачать валидный PDF: HTTP {resp.status_code}, Content-Type={content_type}")
         except Exception as e:
             logger.warning(f"Ошибка скачивания чек-листа: {e}")
+
+        # Попытка B: отправить по URL с cache-buster параметром (если скачивание не удалось)
+        try:
+            direct = self._gdrive_to_direct(url)
+            sep = '&' if ('?' in direct) else '?'
+            busted = f"{direct}{sep}v={int(time.time())}"
+            await context.bot.send_document(chat_id=chat_id, document=busted, caption=caption)
+            logger.info("✅ Чек-лист отправлен по URL с cache-buster")
+            return
+        except Exception as e:
+            logger.warning(f"Не удалось отправить документ по URL: {e}")
+
         # Попытка C: отправляем текстом ссылку (чтобы пользователь точно получил доступ)
         try:
             await context.bot.send_message(chat_id=chat_id, text=f"{caption}\n{self._gdrive_to_direct(url)}")

@@ -115,3 +115,14 @@ async def broadcast(request: Request):
             pass
 
 
+# Debug endpoint to verify env-config actually used in PROD
+@app.get("/api/debug-config")
+async def debug_config():
+    return {
+        "build": "2025-10-07-logging-caption-filename",
+        "CHECKLIST_URL": getattr(Config, 'CHECKLIST_URL', None),
+        "CHECKLIST_CAPTION": getattr(Config, 'CHECKLIST_CAPTION', None),
+        "CHECKLIST_FILENAME": getattr(Config, 'CHECKLIST_FILENAME', None),
+    }
+
+
